@@ -1,0 +1,3 @@
+uvicorn
+nest_asyncio
+scipy==1.15.3

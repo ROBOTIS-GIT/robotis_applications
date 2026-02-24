@@ -1,0 +1,77 @@
+FROM robotis/ros:jazzy-ros-base-torch2.7.0-cuda12.8.0
+
+ARG TARGETARCH
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    COLCON_WS=/root/ros2_ws \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    PIP_INDEX_URL=https://pypi.org/simple \
+    PIP_EXTRA_INDEX_URL=https://pypi.ngc.nvidia.com \
+    RMW_IMPLEMENTATION=rmw_zenoh_cpp
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    vim \
+    nano \
+    libnss3-tools \
+    python3-pip \
+    python3-colcon-common-extensions \
+    ros-${ROS_DISTRO}-backward-ros \
+    ros-${ROS_DISTRO}-ros2-control \
+    ros-${ROS_DISTRO}-ros2-control-cmake \
+    ros-${ROS_DISTRO}-rmw-zenoh-cpp && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN curl -JLO "https://dl.filippo.io/mkcert/latest?for=linux/${TARGETARCH}" && \
+    chmod +x mkcert-v*-linux-${TARGETARCH} && \
+    mv mkcert-v*-linux-${TARGETARCH} /usr/local/bin/mkcert
+
+RUN /usr/bin/pip3 config set global.break-system-packages true
+
+COPY requirements.txt /tmp/requirements.txt
+RUN /usr/bin/pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
+
+COPY gen_cert.sh /root/gen_cert.sh
+RUN chmod +x /root/gen_cert.sh
+
+RUN cd /root && \
+    git clone -b v0.1.5 https://github.com/ROBOTIS-GIT/vuer.git && \
+    /usr/bin/pip3 install --no-cache-dir --break-system-packages -e '/root/vuer[all]' && \
+    /usr/bin/pip3 install --no-cache-dir --break-system-packages aiohttp aiohttp-cors
+
+RUN /usr/bin/python3 -c "import nest_asyncio, aiohttp, aiohttp_cors; from vuer import Vuer"
+
+ENV PYTHONPATH=/root/vuer
+
+WORKDIR ${COLCON_WS}
+RUN mkdir -p ${COLCON_WS}/src && \
+    cd ${COLCON_WS}/src && \
+    git clone -b jazzy https://github.com/ROBOTIS-GIT/ai_worker.git && \
+    git clone -b jazzy https://github.com/ROBOTIS-GIT/dynamixel_hardware_interface.git && \
+    git clone -b jazzy https://github.com/ROBOTIS-GIT/dynamixel_interfaces.git && \
+    git clone -b jazzy https://github.com/ROBOTIS-GIT/DynamixelSDK.git
+
+RUN cd ${COLCON_WS} && \
+    [ -f /etc/ros/rosdep/sources.list.d/20-default.list ] || rosdep init && \
+    rosdep update && \
+    apt-get update && \
+    rosdep install -i --from-paths src --rosdistro $ROS_DISTRO -y && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
+    cd ${COLCON_WS} && \
+    colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release"
+
+RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc && \
+    echo "export RMW_IMPLEMENTATION=rmw_zenoh_cpp" >> /root/.bashrc
+
+EXPOSE 8012
+EXPOSE 8080
+
+RUN echo "source ${COLCON_WS}/install/setup.bash" >> /root/.bashrc && \
+    echo "alias cb='colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release'" >> /root/.bashrc && \
+    echo "alias vr='ros2 launch robotis_vuer vr_publisher.launch.py'" >> /root/.bashrc
+
+CMD ["bash"]

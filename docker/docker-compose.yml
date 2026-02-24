@@ -1,0 +1,26 @@
+services:
+  robotis_applications:
+    container_name: robotis-applications
+    image: robotis/robotis-applications:${TARGET_ARCH:-arm64}-local
+    build:
+      context: .
+      dockerfile: Dockerfile.${TARGET_ARCH:-arm64}
+    tty: true
+    stdin_open: true
+    restart: unless-stopped
+    network_mode: host
+    ipc: host
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - RMW_IMPLEMENTATION=rmw_zenoh_cpp
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-30}
+    volumes:
+      - /dev:/dev
+      - /dev/shm:/dev/shm
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /tmp/.docker.xauth:/tmp/.docker.xauth:rw
+      - ./workspace:/workspace
+      - ../:/root/ros2_ws/src/ROBOTIS_applications
+    command: sleep infinity
