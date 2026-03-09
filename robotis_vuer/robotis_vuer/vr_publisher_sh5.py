@@ -11,6 +11,7 @@ import nest_asyncio
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from scipy.spatial.transform import Rotation as R
 from std_msgs.msg import Bool
 from vuer import Vuer
@@ -106,15 +107,11 @@ BODY_JOINT_KEYS = [
     "right-foot-ball",
 ]
 
+BODY_JOINT_INDEX = {name: index for index, name in enumerate(BODY_JOINT_KEYS)}
+
 
 class VRRawStatePublisher(Node):
-    BODY_HEAD_TO_ROS_POSITION = np.array([
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, -1.0],
-        [-1.0, 0.0, 0.0],
-    ], dtype=np.float64)
-
-    VR_TO_ROS_MATRIX = np.array([
+    VR_WORLD_TO_ROS_WORLD_MATRIX = np.array([
         [0.0, 0.0, -1.0],
         [-1.0, 0.0, 0.0],
         [0.0, 1.0, 0.0],
@@ -133,31 +130,28 @@ class VRRawStatePublisher(Node):
         super().__init__('vr_raw_state_publisher')
 
         self.declare_parameter('hand_pose_is_head_relative', True)
-        self.hand_pose_is_head_relative = bool(
-            self.get_parameter('hand_pose_is_head_relative').value
-        )
+        self.get_logger().info('hand_pose_is_head_relative is ignored; SH5 now publishes ros_world raw streams only')
+
         self.vr_publishing_enabled = True
 
         self.left_hand_data = None
         self.right_hand_data = None
-        self.head_transform_matrix = np.eye(4, dtype=np.float64)
-        self.head_inverse_matrix = np.eye(4, dtype=np.float64)
-        self.body_head_to_ros_rot = R.from_matrix(self.BODY_HEAD_TO_ROS_POSITION)
-
-        self.head_pub = self.create_publisher(PoseStamped, '/vr/raw/head_pose', 10)
-        self.left_wrist_pub = self.create_publisher(PoseStamped, '/vr/raw/left_wrist_pose', 10)
-        self.right_wrist_pub = self.create_publisher(PoseStamped, '/vr/raw/right_wrist_pose', 10)
-        self.left_elbow_pub = self.create_publisher(PoseStamped, '/vr/raw/left_elbow_pose', 10)
-        self.right_elbow_pub = self.create_publisher(PoseStamped, '/vr/raw/right_elbow_pose', 10)
-        self.left_hand_pub = self.create_publisher(PoseArray, '/vr/raw/left_hand_points', 10)
-        self.right_hand_pub = self.create_publisher(PoseArray, '/vr/raw/right_hand_points', 10)
-
-        self.vr_control_sub = self.create_subscription(
-            Bool,
-            '/vr_control/toggle',
-            self.vr_control_callback,
-            10,
+        self.vr_world_to_ros_world_rot = R.from_matrix(self.VR_WORLD_TO_ROS_WORLD_MATRIX)
+        self.vr_stream_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
         )
+
+        self.head_pub = self.create_publisher(PoseStamped, '/vr/raw/head_pose_ros', self.vr_stream_qos)
+        self.left_wrist_pub = self.create_publisher(PoseStamped, '/vr/raw/left_wrist_pose_ros', self.vr_stream_qos)
+        self.right_wrist_pub = self.create_publisher(PoseStamped, '/vr/raw/right_wrist_pose_ros', self.vr_stream_qos)
+        self.left_elbow_pub = self.create_publisher(PoseStamped, '/vr/raw/left_elbow_pose_ros', self.vr_stream_qos)
+        self.right_elbow_pub = self.create_publisher(PoseStamped, '/vr/raw/right_elbow_pose_ros', self.vr_stream_qos)
+        self.left_hand_pub = self.create_publisher(PoseArray, '/vr/raw/left_hand_points_ros', self.vr_stream_qos)
+        self.right_hand_pub = self.create_publisher(PoseArray, '/vr/raw/right_hand_points_ros', self.vr_stream_qos)
+
+        self.create_subscription(Bool, '/vr_control/toggle', self.vr_control_callback, 10)
 
         current_dir = os.path.dirname(os.path.abspath(__file__))
         cert_file = os.path.join(current_dir, 'cert.pem')
@@ -181,9 +175,9 @@ class VRRawStatePublisher(Node):
         asyncio.set_event_loop(self.loop)
         self.start_vuer_server()
 
-        self.get_logger().info('VR raw state publisher started')
+        self.get_logger().info('VR raw SH5 publisher started')
         self.get_logger().info(
-            'Publishers: /vr/raw/head_pose, /vr/raw/*_wrist_pose, /vr/raw/*_elbow_pose, /vr/raw/*_hand_points'
+            'Publishers: /vr/raw/head_pose_ros, /vr/raw/*_wrist_pose_ros, /vr/raw/*_elbow_pose_ros, /vr/raw/*_hand_points_ros'
         )
 
     def vr_control_callback(self, msg):
@@ -191,9 +185,9 @@ class VRRawStatePublisher(Node):
         if self.vr_publishing_enabled:
             self.left_hand_data = None
             self.right_hand_data = None
-            self.get_logger().info('VR raw publishing enabled')
+            self.get_logger().info('VR raw SH5 publishing enabled')
         else:
-            self.get_logger().info('VR raw publishing disabled')
+            self.get_logger().info('VR raw SH5 publishing disabled')
 
     def start_vuer_server(self):
         def run_server():
@@ -201,7 +195,7 @@ class VRRawStatePublisher(Node):
                 asyncio.set_event_loop(self.loop)
                 self.vuer.spawn(start=True)(self.main_hand_tracking)
             except Exception as exc:
-                self.get_logger().error(f'Error in VR raw server thread: {exc}')
+                self.get_logger().error(f'Error in VR raw SH5 server thread: {exc}')
                 self.get_logger().error(traceback.format_exc())
 
         self.server_thread = threading.Thread(target=run_server, daemon=True)
@@ -259,73 +253,41 @@ class VRRawStatePublisher(Node):
         if head_matrix is None:
             return
 
-        self.head_transform_matrix = head_matrix
-        self.head_inverse_matrix = np.linalg.inv(head_matrix)
         stamp = self.get_clock().now().to_msg()
-
-        head_pos, head_quat = self.matrix_to_pose(head_matrix)
-        head_pos_ros, head_quat_ros = self.vr_to_ros_transform(head_pos, head_quat)
-        self.head_pub.publish(
-            self.make_pose_stamped(stamp, 'vr_world', head_pos_ros, head_quat_ros)
-        )
+        self.publish_ros_pose_from_matrix(self.head_pub, stamp, head_matrix)
 
         left_elbow = self.get_body_joint_matrix_from_flat(body_array, 'left-arm-lower')
         if left_elbow is not None:
-            self.left_elbow_pub.publish(
-                self.make_relative_body_pose(stamp, left_elbow)
-            )
+            self.publish_ros_pose_from_matrix(self.left_elbow_pub, stamp, left_elbow)
 
         right_elbow = self.get_body_joint_matrix_from_flat(body_array, 'right-arm-lower')
         if right_elbow is not None:
-            self.right_elbow_pub.publish(
-                self.make_relative_body_pose(stamp, right_elbow)
-            )
+            self.publish_ros_pose_from_matrix(self.right_elbow_pub, stamp, right_elbow)
 
         if self.left_hand_data is not None:
-            wrist_msg, hand_msg = self.make_hand_messages(stamp, self.left_hand_data)
+            wrist_msg, hand_msg = self.make_world_ros_hand_messages(stamp, self.left_hand_data)
             if wrist_msg is not None and hand_msg is not None:
                 self.left_wrist_pub.publish(wrist_msg)
                 self.left_hand_pub.publish(hand_msg)
 
         if self.right_hand_data is not None:
-            wrist_msg, hand_msg = self.make_hand_messages(stamp, self.right_hand_data)
+            wrist_msg, hand_msg = self.make_world_ros_hand_messages(stamp, self.right_hand_data)
             if wrist_msg is not None and hand_msg is not None:
                 self.right_wrist_pub.publish(wrist_msg)
                 self.right_hand_pub.publish(hand_msg)
 
-    def make_relative_body_pose(self, stamp, joint_matrix):
-        relative_joint_matrix = self.head_inverse_matrix @ joint_matrix
-        pos_head, quat_head = self.matrix_to_pose(relative_joint_matrix)
-        pos_ros = (self.BODY_HEAD_TO_ROS_POSITION @ pos_head).astype(np.float64)
-        rel_rot = R.from_matrix(relative_joint_matrix[:3, :3])
-        quat_ros = (self.body_head_to_ros_rot * rel_rot).as_quat()
-        return self.make_pose_stamped(stamp, 'vr_head', pos_ros, quat_ros)
-
-    def make_hand_messages(self, stamp, hand_data):
+    def make_world_ros_hand_messages(self, stamp, hand_data):
         poses = []
         wrist_pose = None
         arr = np.asarray(hand_data, dtype=np.float64)
 
-        head_rot_inv = self.head_inverse_matrix[:3, :3] if self.hand_pose_is_head_relative else None
-        head_world_pos = self.head_transform_matrix[:3, 3] if self.hand_pose_is_head_relative else None
-
         for frame_index in self.REQUIRED_VR_FRAMES:
             start = frame_index * 16
             joint_matrix = arr[start:start + 16].reshape(4, 4, order='F')
-            world_rot = joint_matrix[:3, :3]
-            world_pos = joint_matrix[:3, 3]
+            if abs(float(np.linalg.det(joint_matrix[:3, :3]))) < 1e-6:
+                return None, None
 
-            if self.hand_pose_is_head_relative and head_rot_inv is not None and head_world_pos is not None:
-                relative_pos_vr = head_rot_inv @ (world_pos - head_world_pos)
-                relative_rot = head_rot_inv @ world_rot
-                pos_ros = (self.BODY_HEAD_TO_ROS_POSITION @ relative_pos_vr).astype(np.float64)
-                quat_ros = (self.body_head_to_ros_rot * R.from_matrix(relative_rot)).as_quat()
-                frame_id = 'vr_head'
-            else:
-                pos_ros = self.VR_TO_ROS_MATRIX @ world_pos
-                quat_ros = R.from_matrix(self.VR_TO_ROS_MATRIX @ world_rot).as_quat()
-                frame_id = 'vr_world'
-
+            pos_ros, quat_ros = self.vr_world_matrix_to_ros_pose(joint_matrix)
             pose = Pose()
             pose.position.x = float(pos_ros[0])
             pose.position.y = float(pos_ros[1])
@@ -337,16 +299,38 @@ class VRRawStatePublisher(Node):
             poses.append(pose)
 
             if frame_index == 0:
-                wrist_pose = self.make_pose_stamped(stamp, frame_id, pos_ros, quat_ros)
+                wrist_pose = self.make_pose_stamped(stamp, 'ros_world', pos_ros, quat_ros)
 
         if wrist_pose is None or len(poses) != len(self.REQUIRED_VR_FRAMES):
             return None, None
 
         hand_msg = PoseArray()
         hand_msg.header.stamp = stamp
-        hand_msg.header.frame_id = wrist_pose.header.frame_id
+        hand_msg.header.frame_id = 'ros_world'
         hand_msg.poses = poses
         return wrist_pose, hand_msg
+
+    def get_body_joint_matrix_from_flat(self, body_array, joint_name):
+        index = BODY_JOINT_INDEX.get(joint_name)
+        if index is None:
+            return None
+        start = index * 16
+        end = start + 16
+        if body_array.size < end:
+            return None
+        mat4 = body_array[start:end].reshape(4, 4, order='F')
+        if abs(float(np.linalg.det(mat4[:3, :3]))) < 1e-6:
+            return None
+        return mat4
+
+    def publish_ros_pose_from_matrix(self, publisher, stamp, matrix):
+        position_ros, quaternion_ros = self.vr_world_matrix_to_ros_pose(matrix)
+        publisher.publish(self.make_pose_stamped(stamp, 'ros_world', position_ros, quaternion_ros))
+
+    def vr_world_matrix_to_ros_pose(self, matrix):
+        vr_pos = matrix[:3, 3]
+        vr_quat = R.from_matrix(matrix[:3, :3]).as_quat()
+        return self.vr_world_to_ros_transform(vr_pos, vr_quat)
 
     def make_pose_stamped(self, stamp, frame_id, position, quaternion):
         msg = PoseStamped()
@@ -361,29 +345,11 @@ class VRRawStatePublisher(Node):
         msg.pose.orientation.w = float(quaternion[3])
         return msg
 
-    def get_body_joint_matrix_from_flat(self, body_array, joint_name):
-        if joint_name not in BODY_JOINT_KEYS:
-            return None
-        index = BODY_JOINT_KEYS.index(joint_name)
-        start = index * 16
-        end = start + 16
-        if body_array.size < end:
-            return None
-        mat4 = body_array[start:end].reshape(4, 4, order='F')
-        if abs(np.linalg.det(mat4[:3, :3])) < 1e-6:
-            return None
-        return mat4
-
-    def matrix_to_pose(self, mat):
-        pos = mat[:3, 3]
-        quat = R.from_matrix(mat[:3, :3]).as_quat()
-        return pos, quat
-
-    def vr_to_ros_transform(self, vr_pos, vr_quat):
-        ros_pos = self.VR_TO_ROS_MATRIX @ vr_pos
-        vr_rot = R.from_quat(vr_quat).as_matrix()
-        ros_quat = R.from_matrix(self.VR_TO_ROS_MATRIX @ vr_rot).as_quat()
-        return ros_pos, ros_quat
+    def vr_world_to_ros_transform(self, vr_pos, vr_quat):
+        ros_pos = self.VR_WORLD_TO_ROS_WORLD_MATRIX @ np.asarray(vr_pos, dtype=np.float64)
+        vr_rotation = R.from_quat(vr_quat)
+        ros_rotation = self.vr_world_to_ros_world_rot * vr_rotation * self.vr_world_to_ros_world_rot.inv()
+        return ros_pos, ros_rotation.as_quat()
 
 
 def main(args=None):
