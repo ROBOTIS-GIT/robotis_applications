@@ -11,6 +11,7 @@ import nest_asyncio
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from scipy.spatial.transform import Rotation as R
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Bool
@@ -107,6 +108,8 @@ BODY_JOINT_KEYS = [
     "right-foot-ball",
 ]
 
+BODY_JOINT_INDEX = {name: index for index, name in enumerate(BODY_JOINT_KEYS)}
+
 
 class VRRawControllerPublisher(Node):
     # WebXR/Vuer world axes: +X right, +Y up, -Z forward.
@@ -122,14 +125,19 @@ class VRRawControllerPublisher(Node):
 
         self.vr_publishing_enabled = True
         self.vr_world_to_ros_world_rot = R.from_matrix(self.VR_WORLD_TO_ROS_WORLD_MATRIX)
+        self.vr_stream_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+        )
 
-        self.head_pose_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/head_pose_ros', 10)
-        self.left_elbow_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/left_elbow_pose_ros', 10)
-        self.right_elbow_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/right_elbow_pose_ros', 10)
-        self.left_controller_pose_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/left_pose_ros', 10)
-        self.right_controller_pose_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/right_pose_ros', 10)
-        self.left_controller_state_pub = self.create_publisher(Joy, '/vr/raw/controller/left_state', 10)
-        self.right_controller_state_pub = self.create_publisher(Joy, '/vr/raw/controller/right_state', 10)
+        self.head_pose_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/head_pose_ros', self.vr_stream_qos)
+        self.left_elbow_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/left_elbow_pose_ros', self.vr_stream_qos)
+        self.right_elbow_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/right_elbow_pose_ros', self.vr_stream_qos)
+        self.left_controller_pose_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/left_pose_ros', self.vr_stream_qos)
+        self.right_controller_pose_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/right_pose_ros', self.vr_stream_qos)
+        self.left_controller_state_pub = self.create_publisher(Joy, '/vr/raw/controller/left_state', self.vr_stream_qos)
+        self.right_controller_state_pub = self.create_publisher(Joy, '/vr/raw/controller/right_state', self.vr_stream_qos)
 
         self.create_subscription(Bool, '/vr_control/toggle', self.vr_control_callback, 10)
 
@@ -214,27 +222,15 @@ class VRRawControllerPublisher(Node):
 
         stamp = self.get_clock().now().to_msg()
 
-        head_pos, head_quat = self.matrix_to_pose(head_matrix)
-        head_pos_ros, head_quat_ros = self.vr_world_to_ros_transform(head_pos, head_quat)
-        self.head_pose_ros_pub.publish(
-            self.make_pose_stamped(stamp, 'ros_world', head_pos_ros, head_quat_ros)
-        )
+        self.publish_ros_pose_from_matrix(self.head_pose_ros_pub, stamp, head_matrix)
 
         left_elbow = self.get_body_joint_matrix_from_flat(body_array, 'left-arm-lower')
         if left_elbow is not None:
-            left_pos, left_quat = self.matrix_to_pose(left_elbow)
-            left_pos_ros, left_quat_ros = self.vr_world_to_ros_transform(left_pos, left_quat)
-            self.left_elbow_ros_pub.publish(
-                self.make_pose_stamped(stamp, 'ros_world', left_pos_ros, left_quat_ros)
-            )
+            self.publish_ros_pose_from_matrix(self.left_elbow_ros_pub, stamp, left_elbow)
 
         right_elbow = self.get_body_joint_matrix_from_flat(body_array, 'right-arm-lower')
         if right_elbow is not None:
-            right_pos, right_quat = self.matrix_to_pose(right_elbow)
-            right_pos_ros, right_quat_ros = self.vr_world_to_ros_transform(right_pos, right_quat)
-            self.right_elbow_ros_pub.publish(
-                self.make_pose_stamped(stamp, 'ros_world', right_pos_ros, right_quat_ros)
-            )
+            self.publish_ros_pose_from_matrix(self.right_elbow_ros_pub, stamp, right_elbow)
 
     async def on_controller_move(self, event, _session):
         if not self.vr_publishing_enabled or not rclpy.ok():
@@ -258,20 +254,12 @@ class VRRawControllerPublisher(Node):
         left_matrix_raw = event.value.get('left')
         if isinstance(left_matrix_raw, (list, np.ndarray)) and len(left_matrix_raw) == 16:
             left_matrix = np.asarray(left_matrix_raw, dtype=np.float64).reshape(4, 4, order='F')
-            left_pos, left_quat = self.matrix_to_pose(left_matrix)
-            left_pos_ros, left_quat_ros = self.vr_world_to_ros_transform(left_pos, left_quat)
-            self.left_controller_pose_ros_pub.publish(
-                self.make_pose_stamped(stamp, 'ros_world', left_pos_ros, left_quat_ros)
-            )
+            self.publish_ros_pose_from_matrix(self.left_controller_pose_ros_pub, stamp, left_matrix)
 
         right_matrix_raw = event.value.get('right')
         if isinstance(right_matrix_raw, (list, np.ndarray)) and len(right_matrix_raw) == 16:
             right_matrix = np.asarray(right_matrix_raw, dtype=np.float64).reshape(4, 4, order='F')
-            right_pos, right_quat = self.matrix_to_pose(right_matrix)
-            right_pos_ros, right_quat_ros = self.vr_world_to_ros_transform(right_pos, right_quat)
-            self.right_controller_pose_ros_pub.publish(
-                self.make_pose_stamped(stamp, 'ros_world', right_pos_ros, right_quat_ros)
-            )
+            self.publish_ros_pose_from_matrix(self.right_controller_pose_ros_pub, stamp, right_matrix)
 
     def make_controller_state_msg(self, stamp, state):
         msg = Joy()
@@ -293,9 +281,9 @@ class VRRawControllerPublisher(Node):
         return msg
 
     def get_body_joint_matrix_from_flat(self, body_array, joint_name):
-        if joint_name not in BODY_JOINT_KEYS:
+        index = BODY_JOINT_INDEX.get(joint_name)
+        if index is None:
             return None
-        index = BODY_JOINT_KEYS.index(joint_name)
         start = index * 16
         end = start + 16
         if body_array.size < end:
@@ -317,6 +305,11 @@ class VRRawControllerPublisher(Node):
         msg.pose.orientation.z = float(quaternion[2])
         msg.pose.orientation.w = float(quaternion[3])
         return msg
+
+    def publish_ros_pose_from_matrix(self, publisher, stamp, matrix):
+        position, quaternion = self.matrix_to_pose(matrix)
+        position_ros, quaternion_ros = self.vr_world_to_ros_transform(position, quaternion)
+        publisher.publish(self.make_pose_stamped(stamp, 'ros_world', position_ros, quaternion_ros))
 
     def matrix_to_pose(self, mat):
         pos = mat[:3, 3]
