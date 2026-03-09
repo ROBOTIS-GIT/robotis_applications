@@ -109,18 +109,19 @@ BODY_JOINT_KEYS = [
 
 
 class VRRawControllerPublisher(Node):
-    # Match the original SG2 conversion used after (head_inverse @ world_matrix).
-    VR_HEAD_TO_ROS_MATRIX = np.array([
-        [0.0, 1.0, 0.0],
+    # WebXR/Vuer world axes: +X right, +Y up, -Z forward.
+    # ROS world axes: +X forward, +Y left, +Z up.
+    VR_WORLD_TO_ROS_WORLD_MATRIX = np.array([
         [0.0, 0.0, -1.0],
         [-1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
     ], dtype=np.float64)
 
     def __init__(self):
         super().__init__('vr_raw_controller_publisher')
 
         self.vr_publishing_enabled = True
-        self.vr_world_to_ros_world_rot = R.from_matrix(self.VR_HEAD_TO_ROS_MATRIX)
+        self.vr_world_to_ros_world_rot = R.from_matrix(self.VR_WORLD_TO_ROS_WORLD_MATRIX)
 
         self.head_pose_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/head_pose_ros', 10)
         self.left_elbow_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/left_elbow_pose_ros', 10)
@@ -323,7 +324,7 @@ class VRRawControllerPublisher(Node):
         return pos, quat
 
     def vr_world_to_ros_transform(self, vr_pos, vr_quat):
-        ros_pos = self.VR_HEAD_TO_ROS_MATRIX @ np.asarray(vr_pos, dtype=np.float64)
+        ros_pos = self.VR_WORLD_TO_ROS_WORLD_MATRIX @ np.asarray(vr_pos, dtype=np.float64)
         vr_rotation = R.from_quat(vr_quat)
         ros_rotation = self.vr_world_to_ros_world_rot * vr_rotation * self.vr_world_to_ros_world_rot.inv()
         return ros_pos, ros_rotation.as_quat()
