@@ -4,8 +4,8 @@ ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive \
     COLCON_WS=/root/ros2_ws \
-    PIP_BREAK_SYSTEM_PACKAGES=1 \
-    RMW_IMPLEMENTATION=rmw_zenoh_cpp
+    PIP_BREAK_SYSTEM_PACKAGES=1
+    #RMW_IMPLEMENTATION=rmw_zenoh_cpp
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -61,14 +61,15 @@ RUN bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
     cd ${COLCON_WS} && \
     colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release"
 
-RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc && \
-    echo "export RMW_IMPLEMENTATION=rmw_zenoh_cpp" >> /root/.bashrc
+RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc
+# && \
+    # echo "export RMW_IMPLEMENTATION=rmw_zenoh_cpp" >> /root/.bashrc
 
 EXPOSE 8012
 EXPOSE 8080
 
 RUN echo "source ${COLCON_WS}/install/setup.bash" >> /root/.bashrc && \
-    echo "alias cb='colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release'" >> /root/.bashrc && \
-    echo "alias vr='ros2 launch robotis_vuer vr_publisher.launch.py'" >> /root/.bashrc
+    echo "alias cb='colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release'" >> /root/.bashrc
+    # echo "alias vr='ros2 launch robotis_vuer vr_publisher.launch.py'" >> /root/.bashrc
 
 CMD ["bash"]

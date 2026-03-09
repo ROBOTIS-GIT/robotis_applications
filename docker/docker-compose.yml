@@ -14,7 +14,7 @@ services:
     environment:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
-      - RMW_IMPLEMENTATION=rmw_zenoh_cpp
+      # - RMW_IMPLEMENTATION=rmw_zenoh_cpp
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-30}
     volumes:
       - /dev:/dev
