@@ -1,4 +1,20 @@
 #!/usr/bin/env python3
+#
+# Copyright 2025 ROBOTIS CO., LTD.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Authors: Wonho Yun
 
 import asyncio
 import os
@@ -23,95 +39,95 @@ nest_asyncio.apply()
 
 
 BODY_JOINT_KEYS = [
-    "hips",
-    "spine-lower",
-    "spine-middle",
-    "spine-upper",
-    "chest",
-    "neck",
-    "head",
-    "left-shoulder",
-    "left-scapula",
-    "left-arm-upper",
-    "left-arm-lower",
-    "left-hand-wrist-twist",
-    "right-shoulder",
-    "right-scapula",
-    "right-arm-upper",
-    "right-arm-lower",
-    "right-hand-wrist-twist",
-    "left-hand-palm",
-    "left-hand-wrist",
-    "left-hand-thumb-metacarpal",
-    "left-hand-thumb-phalanx-proximal",
-    "left-hand-thumb-phalanx-distal",
-    "left-hand-thumb-tip",
-    "left-hand-index-metacarpal",
-    "left-hand-index-phalanx-proximal",
-    "left-hand-index-phalanx-intermediate",
-    "left-hand-index-phalanx-distal",
-    "left-hand-index-tip",
-    "left-hand-middle-phalanx-metacarpal",
-    "left-hand-middle-phalanx-proximal",
-    "left-hand-middle-phalanx-intermediate",
-    "left-hand-middle-phalanx-distal",
-    "left-hand-middle-tip",
-    "left-hand-ring-metacarpal",
-    "left-hand-ring-phalanx-proximal",
-    "left-hand-ring-phalanx-intermediate",
-    "left-hand-ring-phalanx-distal",
-    "left-hand-ring-tip",
-    "left-hand-little-metacarpal",
-    "left-hand-little-phalanx-proximal",
-    "left-hand-little-phalanx-intermediate",
-    "left-hand-little-phalanx-distal",
-    "left-hand-little-tip",
-    "right-hand-palm",
-    "right-hand-wrist",
-    "right-hand-thumb-metacarpal",
-    "right-hand-thumb-phalanx-proximal",
-    "right-hand-thumb-phalanx-distal",
-    "right-hand-thumb-tip",
-    "right-hand-index-metacarpal",
-    "right-hand-index-phalanx-proximal",
-    "right-hand-index-phalanx-intermediate",
-    "right-hand-index-phalanx-distal",
-    "right-hand-index-tip",
-    "right-hand-middle-metacarpal",
-    "right-hand-middle-phalanx-proximal",
-    "right-hand-middle-phalanx-intermediate",
-    "right-hand-middle-phalanx-distal",
-    "right-hand-middle-tip",
-    "right-hand-ring-metacarpal",
-    "right-hand-ring-phalanx-proximal",
-    "right-hand-ring-phalanx-intermediate",
-    "right-hand-ring-phalanx-distal",
-    "right-hand-ring-tip",
-    "right-hand-little-metacarpal",
-    "right-hand-little-phalanx-proximal",
-    "right-hand-little-phalanx-intermediate",
-    "right-hand-little-phalanx-distal",
-    "right-hand-little-tip",
-    "left-upper-leg",
-    "left-lower-leg",
-    "left-foot-ankle-twist",
-    "left-foot-ankle",
-    "left-foot-subtalar",
-    "left-foot-transverse",
-    "left-foot-ball",
-    "right-upper-leg",
-    "right-lower-leg",
-    "right-foot-ankle-twist",
-    "right-foot-ankle",
-    "right-foot-subtalar",
-    "right-foot-transverse",
-    "right-foot-ball",
+    'hips',
+    'spine-lower',
+    'spine-middle',
+    'spine-upper',
+    'chest',
+    'neck',
+    'head',
+    'left-shoulder',
+    'left-scapula',
+    'left-arm-upper',
+    'left-arm-lower',
+    'left-hand-wrist-twist',
+    'right-shoulder',
+    'right-scapula',
+    'right-arm-upper',
+    'right-arm-lower',
+    'right-hand-wrist-twist',
+    'left-hand-palm',
+    'left-hand-wrist',
+    'left-hand-thumb-metacarpal',
+    'left-hand-thumb-phalanx-proximal',
+    'left-hand-thumb-phalanx-distal',
+    'left-hand-thumb-tip',
+    'left-hand-index-metacarpal',
+    'left-hand-index-phalanx-proximal',
+    'left-hand-index-phalanx-intermediate',
+    'left-hand-index-phalanx-distal',
+    'left-hand-index-tip',
+    'left-hand-middle-phalanx-metacarpal',
+    'left-hand-middle-phalanx-proximal',
+    'left-hand-middle-phalanx-intermediate',
+    'left-hand-middle-phalanx-distal',
+    'left-hand-middle-tip',
+    'left-hand-ring-metacarpal',
+    'left-hand-ring-phalanx-proximal',
+    'left-hand-ring-phalanx-intermediate',
+    'left-hand-ring-phalanx-distal',
+    'left-hand-ring-tip',
+    'left-hand-little-metacarpal',
+    'left-hand-little-phalanx-proximal',
+    'left-hand-little-phalanx-intermediate',
+    'left-hand-little-phalanx-distal',
+    'left-hand-little-tip',
+    'right-hand-palm',
+    'right-hand-wrist',
+    'right-hand-thumb-metacarpal',
+    'right-hand-thumb-phalanx-proximal',
+    'right-hand-thumb-phalanx-distal',
+    'right-hand-thumb-tip',
+    'right-hand-index-metacarpal',
+    'right-hand-index-phalanx-proximal',
+    'right-hand-index-phalanx-intermediate',
+    'right-hand-index-phalanx-distal',
+    'right-hand-index-tip',
+    'right-hand-middle-metacarpal',
+    'right-hand-middle-phalanx-proximal',
+    'right-hand-middle-phalanx-intermediate',
+    'right-hand-middle-phalanx-distal',
+    'right-hand-middle-tip',
+    'right-hand-ring-metacarpal',
+    'right-hand-ring-phalanx-proximal',
+    'right-hand-ring-phalanx-intermediate',
+    'right-hand-ring-phalanx-distal',
+    'right-hand-ring-tip',
+    'right-hand-little-metacarpal',
+    'right-hand-little-phalanx-proximal',
+    'right-hand-little-phalanx-intermediate',
+    'right-hand-little-phalanx-distal',
+    'right-hand-little-tip',
+    'left-upper-leg',
+    'left-lower-leg',
+    'left-foot-ankle-twist',
+    'left-foot-ankle',
+    'left-foot-subtalar',
+    'left-foot-transverse',
+    'left-foot-ball',
+    'right-upper-leg',
+    'right-lower-leg',
+    'right-foot-ankle-twist',
+    'right-foot-ankle',
+    'right-foot-subtalar',
+    'right-foot-transverse',
+    'right-foot-ball',
 ]
 
 BODY_JOINT_INDEX = {name: index for index, name in enumerate(BODY_JOINT_KEYS)}
 
 
-class VRRawControllerPublisher(Node):
+class VrPublisherSg2(Node):
     # WebXR/Vuer world axes: +X right, +Y up, -Z forward.
     # ROS world axes: +X forward, +Y left, +Z up.
     VR_WORLD_TO_ROS_WORLD_MATRIX = np.array([
@@ -121,9 +137,10 @@ class VRRawControllerPublisher(Node):
     ], dtype=np.float64)
 
     def __init__(self):
-        super().__init__('vr_raw_controller_publisher')
+        super().__init__('vr_publisher_sg2')
 
-        self.vr_publishing_enabled = True
+        self.vr_publishing_enabled = False
+
         self.vr_world_to_ros_world_rot = R.from_matrix(self.VR_WORLD_TO_ROS_WORLD_MATRIX)
         self.vr_stream_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -131,13 +148,27 @@ class VRRawControllerPublisher(Node):
             reliability=ReliabilityPolicy.BEST_EFFORT,
         )
 
-        self.head_pose_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/head_pose_ros', self.vr_stream_qos)
-        self.left_elbow_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/left_elbow_pose_ros', self.vr_stream_qos)
-        self.right_elbow_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/right_elbow_pose_ros', self.vr_stream_qos)
-        self.left_controller_pose_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/left_pose_ros', self.vr_stream_qos)
-        self.right_controller_pose_ros_pub = self.create_publisher(PoseStamped, '/vr/raw/controller/right_pose_ros', self.vr_stream_qos)
-        self.left_controller_state_pub = self.create_publisher(Joy, '/vr/raw/controller/left_state', self.vr_stream_qos)
-        self.right_controller_state_pub = self.create_publisher(Joy, '/vr/raw/controller/right_state', self.vr_stream_qos)
+        self.head_pose_ros_pub = self.create_publisher(
+            PoseStamped, '/vr/controller/head_pose_ros', self.vr_stream_qos
+        )
+        self.left_elbow_ros_pub = self.create_publisher(
+            PoseStamped, '/vr/controller/left_elbow_pose_ros', self.vr_stream_qos
+        )
+        self.right_elbow_ros_pub = self.create_publisher(
+            PoseStamped, '/vr/controller/right_elbow_pose_ros', self.vr_stream_qos
+        )
+        self.left_controller_pose_ros_pub = self.create_publisher(
+            PoseStamped, '/vr/controller/left_pose_ros', self.vr_stream_qos
+        )
+        self.right_controller_pose_ros_pub = self.create_publisher(
+            PoseStamped, '/vr/controller/right_pose_ros', self.vr_stream_qos
+        )
+        self.left_controller_state_pub = self.create_publisher(
+            Joy, '/vr/controller/left_state', self.vr_stream_qos
+        )
+        self.right_controller_state_pub = self.create_publisher(
+            Joy, '/vr/controller/right_state', self.vr_stream_qos
+        )
 
         self.create_subscription(Bool, '/vr_control/toggle', self.vr_control_callback, 10)
 
@@ -153,7 +184,7 @@ class VRRawControllerPublisher(Node):
             cert=cert_file,
             key=key_file,
             ws=ws_url,
-            queries=dict(grid=False, reconnect=True),
+            queries={'grid': False, 'reconnect': True},
             queue_len=3,
         )
         self.vuer.add_handler('BODY_MOVE')(self.on_body_tracking_move)
@@ -254,20 +285,25 @@ class VRRawControllerPublisher(Node):
         left_matrix_raw = event.value.get('left')
         if isinstance(left_matrix_raw, (list, np.ndarray)) and len(left_matrix_raw) == 16:
             left_matrix = np.asarray(left_matrix_raw, dtype=np.float64).reshape(4, 4, order='F')
-            self.publish_ros_pose_from_matrix(self.left_controller_pose_ros_pub, stamp, left_matrix)
+            self.publish_ros_pose_from_matrix(
+                self.left_controller_pose_ros_pub, stamp, left_matrix
+            )
 
         right_matrix_raw = event.value.get('right')
         if isinstance(right_matrix_raw, (list, np.ndarray)) and len(right_matrix_raw) == 16:
             right_matrix = np.asarray(right_matrix_raw, dtype=np.float64).reshape(4, 4, order='F')
-            self.publish_ros_pose_from_matrix(self.right_controller_pose_ros_pub, stamp, right_matrix)
+            self.publish_ros_pose_from_matrix(
+                self.right_controller_pose_ros_pub, stamp, right_matrix
+            )
 
     def make_controller_state_msg(self, stamp, state):
         msg = Joy()
         msg.header.stamp = stamp
         msg.header.frame_id = ''
+        thumbstick_value = state.get('thumbstickValue', [0.0, 0.0])
         msg.axes = [
-            float(state.get('thumbstickValue', [0.0, 0.0])[0]) if len(state.get('thumbstickValue', [0.0, 0.0])) > 0 else 0.0,
-            float(state.get('thumbstickValue', [0.0, 0.0])[1]) if len(state.get('thumbstickValue', [0.0, 0.0])) > 1 else 0.0,
+            float(thumbstick_value[0]) if len(thumbstick_value) > 0 else 0.0,
+            float(thumbstick_value[1]) if len(thumbstick_value) > 1 else 0.0,
             float(state.get('triggerValue', 0.0)),
             float(state.get('squeezeValue', 0.0)),
         ]
@@ -319,13 +355,17 @@ class VRRawControllerPublisher(Node):
     def vr_world_to_ros_transform(self, vr_pos, vr_quat):
         ros_pos = self.VR_WORLD_TO_ROS_WORLD_MATRIX @ np.asarray(vr_pos, dtype=np.float64)
         vr_rotation = R.from_quat(vr_quat)
-        ros_rotation = self.vr_world_to_ros_world_rot * vr_rotation * self.vr_world_to_ros_world_rot.inv()
+        ros_rotation = (
+            self.vr_world_to_ros_world_rot
+            * vr_rotation
+            * self.vr_world_to_ros_world_rot.inv()
+        )
         return ros_pos, ros_rotation.as_quat()
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = VRRawControllerPublisher()
+    node = VrPublisherSg2()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
