@@ -8,7 +8,7 @@ if [ $# -lt 1 ]; then
 fi
 
 HOST_IP="$1"
-TV_FOLDER="/root/ros2_ws/src/ai_worker/ffw_teleop/ffw_teleop"
+VR_FOLDER="/root/ros2_ws/src/robotis_vuer/robotis_vuer"
 
 set -e
 
@@ -18,8 +18,8 @@ mkcert -install
 echo "2. Generating certificate (cert.pem, key.pem)"
 mkcert -cert-file cert.pem -key-file key.pem "$HOST_IP" localhost 127.0.0.1
 
-echo "3. Copying certificates to Television folder ($TV_FOLDER)"
-mkdir -p "$TV_FOLDER"
-cp cert.pem key.pem "$TV_FOLDER"
+echo "3. Copying certificates to Robotis Vuer folder ($VR_FOLDER)"
+mkdir -p "$VR_FOLDER"
+cp cert.pem key.pem "$VR_FOLDER"
 
-echo "Done! Certificates have been copied to $TV_FOLDER."
+echo "Done! Certificates have been copied to $VR_FOLDER."

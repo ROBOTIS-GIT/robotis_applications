@@ -16,9 +16,6 @@ RUN apt-get update && \
     libnss3-tools \
     python3-pip \
     python3-colcon-common-extensions \
-    ros-${ROS_DISTRO}-backward-ros \
-    ros-${ROS_DISTRO}-ros2-control \
-    ros-${ROS_DISTRO}-ros2-control-cmake \
     ros-${ROS_DISTRO}-rmw-zenoh-cpp && \
     rm -rf /var/lib/apt/lists/*
 
@@ -40,15 +37,16 @@ RUN cd /root && \
 
 RUN python3 -c "import vuer"
 
-ENV PYTHONPATH=/root/vuer
+ENV PYTHONPATH=/root/vuer/src
+
+RUN echo "export PYTHONPATH=/root/vuer/src" >> /root/.bashrc && \
+    export PYTHONPATH=/root/vuer/src
 
 WORKDIR ${COLCON_WS}
 RUN mkdir -p ${COLCON_WS}/src && \
-    cd ${COLCON_WS}/src && \
-    git clone -b jazzy https://github.com/ROBOTIS-GIT/ai_worker.git && \
-    git clone -b jazzy https://github.com/ROBOTIS-GIT/dynamixel_hardware_interface.git && \
-    git clone -b jazzy https://github.com/ROBOTIS-GIT/dynamixel_interfaces.git && \
-    git clone -b jazzy https://github.com/ROBOTIS-GIT/DynamixelSDK.git
+    cd ${COLCON_WS}/src 
+    # && \
+    # git clone -b jazzy https://github.com/ROBOTIS-GIT/robotis_applications.git
 
 RUN cd ${COLCON_WS} && \
     [ -f /etc/ros/rosdep/sources.list.d/20-default.list ] || rosdep init && \
@@ -69,7 +67,7 @@ EXPOSE 8012
 EXPOSE 8080
 
 RUN echo "source ${COLCON_WS}/install/setup.bash" >> /root/.bashrc && \
-    echo "alias cb='colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release'" >> /root/.bashrc
-    # echo "alias vr='ros2 launch robotis_vuer vr_publisher.launch.py'" >> /root/.bashrc
-
+    echo "alias cb='colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release'" >> /root/.bashrc && \
+    echo "export ROS_DOMAIN_ID=30" >> /root/.bashrc && \
+    echo "alias vr='ros2 launch robotis_vuer vr.launch.py'" >> /root/.bashrc
 CMD ["bash"]
