@@ -53,17 +53,3 @@ Run SG2:
 ```bash
 ros2 launch robotis_vuer vr.launch.py model:=sg2
 ```
-
-## Certificates
-
-Generate certificates inside the container:
-
-```bash
-/root/gen_cert.sh
-```
-
-`gen_cert.sh` auto-detects the host IP by default. You can still override it:
-
-```bash
-/root/gen_cert.sh 192.168.0.10
-```
