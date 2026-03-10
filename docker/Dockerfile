@@ -1,11 +1,11 @@
-FROM robotis/ros:jazzy-ros-base-torch2.7.0-cuda12.8.0
+FROM ros:jazzy-ros-base
 
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive \
     COLCON_WS=/root/ros2_ws \
-    PIP_BREAK_SYSTEM_PACKAGES=1
-    # RMW_IMPLEMENTATION=rmw_zenoh_cpp
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    PYTHONPATH=/root/vuer/src
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -23,28 +23,27 @@ RUN curl -JLO "https://dl.filippo.io/mkcert/latest?for=linux/${TARGETARCH}" && \
     chmod +x mkcert-v*-linux-${TARGETARCH} && \
     mv mkcert-v*-linux-${TARGETARCH} /usr/local/bin/mkcert
 
-RUN /usr/bin/pip3 config set global.break-system-packages true
+RUN pip3 config set global.break-system-packages true
 
 COPY requirements.txt /tmp/requirements.txt
-RUN /usr/bin/pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
+RUN pip3 install --no-cache-dir -r /tmp/requirements.txt && \
+    rm -f /tmp/requirements.txt
 
 COPY gen_cert.sh /root/gen_cert.sh
 RUN chmod +x /root/gen_cert.sh
 
 RUN cd /root && \
     git clone -b v0.1.5 https://github.com/ROBOTIS-GIT/vuer.git && \
-    /usr/bin/pip3 install --no-cache-dir --break-system-packages -e '/root/vuer[all]' && \
+    pip3 install --no-cache-dir -e '/root/vuer[all]'
 
-RUN /usr/bin/python3 -c "from vuer import Vuer"
-
-ENV PYTHONPATH=/root/vuer/src
+RUN python3 -c "from vuer import Vuer"
 
 RUN echo "export PYTHONPATH=/root/vuer/src" >> /root/.bashrc
 
 WORKDIR ${COLCON_WS}
 RUN mkdir -p ${COLCON_WS}/src && \
     cd ${COLCON_WS}/src && \
-    git clone -b jazzy https://github.com/ROBOTIS-GIT/robotis_applications.git
+    git clone -b feature-vuer https://github.com/ROBOTIS-GIT/robotis_applications.git
 
 RUN cd ${COLCON_WS} && \
     [ -f /etc/ros/rosdep/sources.list.d/20-default.list ] || rosdep init && \
@@ -57,16 +56,13 @@ RUN bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
     cd ${COLCON_WS} && \
     colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release"
 
-RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc
-    # && \
-    # echo "export RMW_IMPLEMENTATION=rmw_zenoh_cpp" >> /root/.bashrc
-
-EXPOSE 8012
-EXPOSE 8080
-
-RUN echo "source ${COLCON_WS}/install/setup.bash" >> /root/.bashrc && \
+RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc && \
+    echo "source ${COLCON_WS}/install/setup.bash" >> /root/.bashrc && \
     echo "alias cb='colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release'" >> /root/.bashrc && \
     echo "export ROS_DOMAIN_ID=30" >> /root/.bashrc && \
     echo "alias vr='ros2 launch robotis_vuer vr.launch.py'" >> /root/.bashrc
+
+EXPOSE 8012
+EXPOSE 8080
 
 CMD ["bash"]

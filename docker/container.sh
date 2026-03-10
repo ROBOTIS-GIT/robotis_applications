@@ -3,8 +3,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+REPO_ROOT="$( cd "${SCRIPT_DIR}/.." && pwd )"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 CONTAINER_NAME="robotis-applications"
+CERT_DIR="${REPO_ROOT}/robotis_vuer/robotis_vuer"
+CERT_FILE="${CERT_DIR}/cert.pem"
+KEY_FILE="${CERT_DIR}/key.pem"
 
 detect_arch() {
     case "$(uname -m)" in
@@ -15,6 +19,20 @@ detect_arch() {
             exit 1
             ;;
     esac
+}
+
+detect_host_ip() {
+    local detected_ip=""
+
+    if command -v ip >/dev/null 2>&1; then
+        detected_ip="$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {print $7; exit}')"
+    fi
+
+    if [ -z "${detected_ip}" ] && command -v hostname >/dev/null 2>&1; then
+        detected_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    fi
+
+    printf '%s\n' "${detected_ip}"
 }
 
 TARGET_ARCH="${TARGET_ARCH:-$(detect_arch)}"
@@ -66,6 +84,26 @@ start_container() {
     setup_x11
     echo "Starting robotis-applications container (TARGET_ARCH=${TARGET_ARCH})..."
     compose_cmd up -d --build
+    ensure_certificates
+}
+
+ensure_certificates() {
+    local host_ip=""
+
+    if [ -f "${CERT_FILE}" ] && [ -f "${KEY_FILE}" ]; then
+        echo "Certificates already exist. Skipping certificate generation."
+        return
+    fi
+
+    host_ip="$(detect_host_ip)"
+    if [ -z "${host_ip}" ]; then
+        echo "Warning: failed to detect host IP automatically." >&2
+        echo "Run '/root/gen_cert.sh <HOST_IP>' inside the container after start." >&2
+        return
+    fi
+
+    echo "Certificates not found. Generating them once inside the container..."
+    docker exec "${CONTAINER_NAME}" bash -lc "/root/gen_cert.sh ${host_ip}"
 }
 
 enter_container() {

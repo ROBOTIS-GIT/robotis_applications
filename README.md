@@ -14,12 +14,17 @@ To use the Docker image for running ROS packages with the ROBOTIS Hand, visit:
 ## Docker Usage
 
 The main entrypoint is `docker/container.sh`.
+Docker builds for both `amd64` and `arm64` use the shared `docker/Dockerfile`.
 
 Build and start the container:
 
 ```bash
 ./docker/container.sh start
 ```
+
+On the first run, `start` also generates `robotis_vuer` certificates automatically
+if `cert.pem` and `key.pem` are missing, using the host IP detected on the host
+machine.
 
 Enter the running container:
 
@@ -47,4 +52,18 @@ Run SG2:
 
 ```bash
 ros2 launch robotis_vuer vr.launch.py model:=sg2
+```
+
+## Certificates
+
+Generate certificates inside the container:
+
+```bash
+/root/gen_cert.sh
+```
+
+`gen_cert.sh` auto-detects the host IP by default. You can still override it:
+
+```bash
+/root/gen_cert.sh 192.168.0.10
 ```
