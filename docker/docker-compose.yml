@@ -1,7 +1,7 @@
 services:
   robotis_applications:
     container_name: robotis-applications
-    image: robotis/robotis-applications:latest
+    image: robotis/robotis-applications:0.0.1
     tty: true
     build:
       context: .
@@ -20,5 +20,5 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /tmp/.docker.xauth:/tmp/.docker.xauth:rw
       - ./workspace:/workspace
-      - ../:/root/ros2_ws/src/ai_worker/
+      - ../:/root/ros2_ws/src/robotis_applications/
     command: bash
