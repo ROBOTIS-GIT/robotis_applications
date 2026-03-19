@@ -15,8 +15,7 @@ RUN apt-get update && \
     nano \
     libnss3-tools \
     python3-pip \
-    python3-colcon-common-extensions \
-    ros-${ROS_DISTRO}-rmw-zenoh-cpp && \
+    python3-colcon-common-extensions && \
     rm -rf /var/lib/apt/lists/*
 
 RUN curl -JLO "https://dl.filippo.io/mkcert/latest?for=linux/${TARGETARCH}" && \
@@ -43,6 +42,7 @@ RUN echo "export PYTHONPATH=/root/vuer/src" >> /root/.bashrc
 WORKDIR ${COLCON_WS}
 RUN mkdir -p ${COLCON_WS}/src && \
     cd ${COLCON_WS}/src && \
+    git clone -b main https://github.com/ROBOTIS-GIT/robotis_interfaces.git && \
     git clone -b feature-vuer https://github.com/ROBOTIS-GIT/robotis_applications.git
 
 RUN cd ${COLCON_WS} && \

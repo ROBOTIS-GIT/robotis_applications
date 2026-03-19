@@ -12,6 +12,7 @@
   <author email="ywh@robotis.com">Wonho Yun</author>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>robotis_interfaces</exec_depend>
   <exec_depend>robotis_vuer</exec_depend>
 
   <export>
