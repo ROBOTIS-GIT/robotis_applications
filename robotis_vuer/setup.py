@@ -30,6 +30,7 @@ setup(
     license='Apache License 2.0',
     extras_require={
     },
+    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'vr_publisher_sg2 = robotis_vuer.vr_publisher_sg2:main',
