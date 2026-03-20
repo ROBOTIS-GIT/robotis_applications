@@ -48,7 +48,7 @@ jobs:
       - name: Checkout robotis_interfaces
         uses: actions/checkout@v4
         with:
-          repository: https://github.com/ROBOTIS-GIT/robotis_interfaces
+          repository: ROBOTIS-GIT/robotis_interfaces
           path: ros_ws/src/robotis_interfaces
           ref: main
 
