@@ -23,110 +23,109 @@ import socket
 import threading
 import traceback
 
+from geometry_msgs.msg import Point, Point32, PoseStamped, Quaternion, Twist
+from nav_msgs.msg import Odometry
 import nest_asyncio
 import numpy as np
 import rclpy
-from geometry_msgs.msg import Point, PoseStamped, Quaternion, Twist, Point32
-from nav_msgs.msg import Odometry
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from robotis_interfaces.msg import HandJoints
 from scipy.spatial.transform import Rotation as R
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from vuer import Vuer
-from vuer.schemas import Hands, Body, ImageBackground
-
-from robotis_interfaces.msg import HandJoints
+from vuer.schemas import Body, Hands, ImageBackground
 
 # Allow nested asyncio execution
 nest_asyncio.apply()
 
 # WebXR Body Tracking joint order (XRBodyJoint enum)
 BODY_JOINT_KEYS = [
-    "hips",
-    "spine-lower",
-    "spine-middle",
-    "spine-upper",
-    "chest",
-    "neck",
-    "head",
-    "left-shoulder",
-    "left-scapula",
-    "left-arm-upper",
-    "left-arm-lower",
-    "left-hand-wrist-twist",
-    "right-shoulder",
-    "right-scapula",
-    "right-arm-upper",
-    "right-arm-lower",
-    "right-hand-wrist-twist",
-    "left-hand-palm",
-    "left-hand-wrist",
-    "left-hand-thumb-metacarpal",
-    "left-hand-thumb-phalanx-proximal",
-    "left-hand-thumb-phalanx-distal",
-    "left-hand-thumb-tip",
-    "left-hand-index-metacarpal",
-    "left-hand-index-phalanx-proximal",
-    "left-hand-index-phalanx-intermediate",
-    "left-hand-index-phalanx-distal",
-    "left-hand-index-tip",
-    "left-hand-middle-phalanx-metacarpal",
-    "left-hand-middle-phalanx-proximal",
-    "left-hand-middle-phalanx-intermediate",
-    "left-hand-middle-phalanx-distal",
-    "left-hand-middle-tip",
-    "left-hand-ring-metacarpal",
-    "left-hand-ring-phalanx-proximal",
-    "left-hand-ring-phalanx-intermediate",
-    "left-hand-ring-phalanx-distal",
-    "left-hand-ring-tip",
-    "left-hand-little-metacarpal",
-    "left-hand-little-phalanx-proximal",
-    "left-hand-little-phalanx-intermediate",
-    "left-hand-little-phalanx-distal",
-    "left-hand-little-tip",
-    "right-hand-palm",
-    "right-hand-wrist",
-    "right-hand-thumb-metacarpal",
-    "right-hand-thumb-phalanx-proximal",
-    "right-hand-thumb-phalanx-distal",
-    "right-hand-thumb-tip",
-    "right-hand-index-metacarpal",
-    "right-hand-index-phalanx-proximal",
-    "right-hand-index-phalanx-intermediate",
-    "right-hand-index-phalanx-distal",
-    "right-hand-index-tip",
-    "right-hand-middle-metacarpal",
-    "right-hand-middle-phalanx-proximal",
-    "right-hand-middle-phalanx-intermediate",
-    "right-hand-middle-phalanx-distal",
-    "right-hand-middle-tip",
-    "right-hand-ring-metacarpal",
-    "right-hand-ring-phalanx-proximal",
-    "right-hand-ring-phalanx-intermediate",
-    "right-hand-ring-phalanx-distal",
-    "right-hand-ring-tip",
-    "right-hand-little-metacarpal",
-    "right-hand-little-phalanx-proximal",
-    "right-hand-little-phalanx-intermediate",
-    "right-hand-little-phalanx-distal",
-    "right-hand-little-tip",
-    "left-upper-leg",
-    "left-lower-leg",
-    "left-foot-ankle-twist",
-    "left-foot-ankle",
-    "left-foot-subtalar",
-    "left-foot-transverse",
-    "left-foot-ball",
-    "right-upper-leg",
-    "right-lower-leg",
-    "right-foot-ankle-twist",
-    "right-foot-ankle",
-    "right-foot-subtalar",
-    "right-foot-transverse",
-    "right-foot-ball",
+    'hips',
+    'spine-lower',
+    'spine-middle',
+    'spine-upper',
+    'chest',
+    'neck',
+    'head',
+    'left-shoulder',
+    'left-scapula',
+    'left-arm-upper',
+    'left-arm-lower',
+    'left-hand-wrist-twist',
+    'right-shoulder',
+    'right-scapula',
+    'right-arm-upper',
+    'right-arm-lower',
+    'right-hand-wrist-twist',
+    'left-hand-palm',
+    'left-hand-wrist',
+    'left-hand-thumb-metacarpal',
+    'left-hand-thumb-phalanx-proximal',
+    'left-hand-thumb-phalanx-distal',
+    'left-hand-thumb-tip',
+    'left-hand-index-metacarpal',
+    'left-hand-index-phalanx-proximal',
+    'left-hand-index-phalanx-intermediate',
+    'left-hand-index-phalanx-distal',
+    'left-hand-index-tip',
+    'left-hand-middle-phalanx-metacarpal',
+    'left-hand-middle-phalanx-proximal',
+    'left-hand-middle-phalanx-intermediate',
+    'left-hand-middle-phalanx-distal',
+    'left-hand-middle-tip',
+    'left-hand-ring-metacarpal',
+    'left-hand-ring-phalanx-proximal',
+    'left-hand-ring-phalanx-intermediate',
+    'left-hand-ring-phalanx-distal',
+    'left-hand-ring-tip',
+    'left-hand-little-metacarpal',
+    'left-hand-little-phalanx-proximal',
+    'left-hand-little-phalanx-intermediate',
+    'left-hand-little-phalanx-distal',
+    'left-hand-little-tip',
+    'right-hand-palm',
+    'right-hand-wrist',
+    'right-hand-thumb-metacarpal',
+    'right-hand-thumb-phalanx-proximal',
+    'right-hand-thumb-phalanx-distal',
+    'right-hand-thumb-tip',
+    'right-hand-index-metacarpal',
+    'right-hand-index-phalanx-proximal',
+    'right-hand-index-phalanx-intermediate',
+    'right-hand-index-phalanx-distal',
+    'right-hand-index-tip',
+    'right-hand-middle-metacarpal',
+    'right-hand-middle-phalanx-proximal',
+    'right-hand-middle-phalanx-intermediate',
+    'right-hand-middle-phalanx-distal',
+    'right-hand-middle-tip',
+    'right-hand-ring-metacarpal',
+    'right-hand-ring-phalanx-proximal',
+    'right-hand-ring-phalanx-intermediate',
+    'right-hand-ring-phalanx-distal',
+    'right-hand-ring-tip',
+    'right-hand-little-metacarpal',
+    'right-hand-little-phalanx-proximal',
+    'right-hand-little-phalanx-intermediate',
+    'right-hand-little-phalanx-distal',
+    'right-hand-little-tip',
+    'left-upper-leg',
+    'left-lower-leg',
+    'left-foot-ankle-twist',
+    'left-foot-ankle',
+    'left-foot-subtalar',
+    'left-foot-transverse',
+    'left-foot-ball',
+    'right-upper-leg',
+    'right-lower-leg',
+    'right-foot-ankle-twist',
+    'right-foot-ankle',
+    'right-foot-subtalar',
+    'right-foot-transverse',
+    'right-foot-ball',
 ]
 
 
@@ -152,18 +151,54 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('base_divergence_position_threshold', 0.5)
         self.declare_parameter('base_divergence_yaw_threshold', 0.5)
 
-        self.enable_lift_publishing = self.get_parameter('enable_lift_publishing').get_parameter_value().bool_value
-        self.enable_head_publishing = self.get_parameter('enable_head_publishing').get_parameter_value().bool_value
-        self.enable_base_publishing = self.get_parameter('enable_base_publishing').get_parameter_value().bool_value
-        self.base_linear_kp = self.get_parameter('base_linear_kp').get_parameter_value().double_value
-        self.base_angular_kp = self.get_parameter('base_angular_kp').get_parameter_value().double_value
-        self.base_linear_deadzone = self.get_parameter('base_linear_deadzone').get_parameter_value().double_value
-        self.base_angular_deadzone = self.get_parameter('base_angular_deadzone').get_parameter_value().double_value
-        self.base_max_linear_velocity = self.get_parameter('base_max_linear_velocity').get_parameter_value().double_value
-        self.base_max_angular_velocity = self.get_parameter('base_max_angular_velocity').get_parameter_value().double_value
-        self.enable_base_debug_topics = self.get_parameter('enable_base_debug_topics').get_parameter_value().bool_value
-        self.base_divergence_position_threshold = self.get_parameter('base_divergence_position_threshold').get_parameter_value().double_value
-        self.base_divergence_yaw_threshold = self.get_parameter('base_divergence_yaw_threshold').get_parameter_value().double_value
+        self.enable_lift_publishing = (
+            self.get_parameter('enable_lift_publishing')
+            .get_parameter_value().bool_value
+        )
+        self.enable_head_publishing = (
+            self.get_parameter('enable_head_publishing')
+            .get_parameter_value().bool_value
+        )
+        self.enable_base_publishing = (
+            self.get_parameter('enable_base_publishing')
+            .get_parameter_value().bool_value
+        )
+        self.base_linear_kp = (
+            self.get_parameter('base_linear_kp')
+            .get_parameter_value().double_value
+        )
+        self.base_angular_kp = (
+            self.get_parameter('base_angular_kp')
+            .get_parameter_value().double_value
+        )
+        self.base_linear_deadzone = (
+            self.get_parameter('base_linear_deadzone')
+            .get_parameter_value().double_value
+        )
+        self.base_angular_deadzone = (
+            self.get_parameter('base_angular_deadzone')
+            .get_parameter_value().double_value
+        )
+        self.base_max_linear_velocity = (
+            self.get_parameter('base_max_linear_velocity')
+            .get_parameter_value().double_value
+        )
+        self.base_max_angular_velocity = (
+            self.get_parameter('base_max_angular_velocity')
+            .get_parameter_value().double_value
+        )
+        self.enable_base_debug_topics = (
+            self.get_parameter('enable_base_debug_topics')
+            .get_parameter_value().bool_value
+        )
+        self.base_divergence_position_threshold = (
+            self.get_parameter('base_divergence_position_threshold')
+            .get_parameter_value().double_value
+        )
+        self.base_divergence_yaw_threshold = (
+            self.get_parameter('base_divergence_yaw_threshold')
+            .get_parameter_value().double_value
+        )
 
         if self.base_linear_kp <= 0.0:
             self.get_logger().warn('base_linear_kp must be positive. Using default 2.0.')
@@ -177,8 +212,14 @@ class VRTrajectoryPublisher(Node):
             self.base_angular_deadzone = 0.05
 
         # VR image in headset (stereo background from camera topics)
-        self.declare_parameter('vr_image_left_topic', '/zed/zed_node/left/image_rect_color/compressed')
-        self.declare_parameter('vr_image_right_topic', '/zed/zed_node/right/image_rect_color/compressed')
+        self.declare_parameter(
+            'vr_image_left_topic',
+            '/zed/zed_node/left/image_rect_color/compressed'
+        )
+        self.declare_parameter(
+            'vr_image_right_topic',
+            '/zed/zed_node/right/image_rect_color/compressed'
+        )
         self.declare_parameter('vr_image_fps', 15.0)
 
         # Wrist/elbow position offsets (head-relative, ROS frame: X forward, Y left, Z up)
@@ -189,9 +230,18 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('elbow_offset_y', 0.0)
         self.declare_parameter('elbow_offset_z', 0.0)
 
-        self.enable_vr_image = self.get_parameter('enable_vr_image').get_parameter_value().bool_value
-        self.vr_image_left_topic = self.get_parameter('vr_image_left_topic').get_parameter_value().string_value
-        self.vr_image_right_topic = self.get_parameter('vr_image_right_topic').get_parameter_value().string_value
+        self.enable_vr_image = (
+            self.get_parameter('enable_vr_image')
+            .get_parameter_value().bool_value
+        )
+        self.vr_image_left_topic = (
+            self.get_parameter('vr_image_left_topic')
+            .get_parameter_value().string_value
+        )
+        self.vr_image_right_topic = (
+            self.get_parameter('vr_image_right_topic')
+            .get_parameter_value().string_value
+        )
         self.vr_image_fps = self.get_parameter('vr_image_fps').get_parameter_value().double_value
         self.wrist_offsets = {
             'x': self.get_parameter('wrist_offset_x').get_parameter_value().double_value,
@@ -226,7 +276,7 @@ class VRTrajectoryPublisher(Node):
             cert=cert_file,
             key=key_file,
             ws=ws_url,
-            queries=dict(grid=False, reconnect=True),
+            queries={'grid': False, 'reconnect': True},
             queue_len=3
         )
 
@@ -271,13 +321,27 @@ class VRTrajectoryPublisher(Node):
             '/leader/joystick_controller_right/joint_trajectory',
             self.vr_stream_qos
         )
-        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', self.vr_stream_qos)
-        self.base_divergence_pub = self.create_publisher(Bool, '/vr_base_divergence', self.vr_stream_qos)
-        self.vr_camera_goal_pub = self.create_publisher(PoseStamped, '/vr_camera_goal_pose', self.vr_stream_qos)
-        self.left_wrist_rviz_pub = self.create_publisher(PoseStamped, '/l_goal_pose', self.vr_stream_qos)
-        self.right_wrist_rviz_pub = self.create_publisher(PoseStamped, '/r_goal_pose', self.vr_stream_qos)
-        self.left_elbow_pub = self.create_publisher(PoseStamped, '/l_elbow_pose', self.vr_stream_qos)
-        self.right_elbow_pub = self.create_publisher(PoseStamped, '/r_elbow_pose', self.vr_stream_qos)
+        self.cmd_vel_pub = self.create_publisher(
+            Twist, '/cmd_vel', self.vr_stream_qos
+        )
+        self.base_divergence_pub = self.create_publisher(
+            Bool, '/vr_base_divergence', self.vr_stream_qos
+        )
+        self.vr_camera_goal_pub = self.create_publisher(
+            PoseStamped, '/vr_camera_goal_pose', self.vr_stream_qos
+        )
+        self.left_wrist_rviz_pub = self.create_publisher(
+            PoseStamped, '/l_goal_pose', self.vr_stream_qos
+        )
+        self.right_wrist_rviz_pub = self.create_publisher(
+            PoseStamped, '/r_goal_pose', self.vr_stream_qos
+        )
+        self.left_elbow_pub = self.create_publisher(
+            PoseStamped, '/l_elbow_pose', self.vr_stream_qos
+        )
+        self.right_elbow_pub = self.create_publisher(
+            PoseStamped, '/r_elbow_pose', self.vr_stream_qos
+        )
 
         # Subscriber for VR control toggle
         self.vr_control_sub = self.create_subscription(
@@ -286,7 +350,9 @@ class VRTrajectoryPublisher(Node):
             self.vr_control_callback,
             10
         )
-        self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, self.vr_stream_qos)
+        self.odom_sub = self.create_subscription(
+            Odometry, '/odom', self.odom_callback, self.vr_stream_qos
+        )
 
         # VR image (stereo background): optional, enabled by enable_vr_image
         self.current_session = None
@@ -308,16 +374,16 @@ class VRTrajectoryPublisher(Node):
             period = 1.0 / self.vr_image_fps if self.vr_image_fps > 0 else 1.0 / 15.0
             self.image_send_timer = self.create_timer(period, self.send_latest_images)
             self.get_logger().info(
-                f'VR image enabled: left={self.vr_image_left_topic}, right={self.vr_image_right_topic}, '
-                f'{self.vr_image_fps} fps'
+                f'VR image enabled: left={self.vr_image_left_topic}, '
+                f'right={self.vr_image_right_topic}, {self.vr_image_fps} fps'
             )
 
         self.required_vr_frames = [0,
-                                   1,2,3,4,
-                                   6,7,8,9,
-                                   11,12,13,14,
-                                   16,17,18,19,
-                                   21,22,23,24]
+                                   1, 2, 3, 4,
+                                   6, 7, 8, 9,
+                                   11, 12, 13, 14,
+                                   16, 17, 18, 19,
+                                   21, 22, 23, 24]
 
         self.vr_hand_to_urdf = np.array([
             [0, -1, 0],
@@ -325,10 +391,10 @@ class VRTrajectoryPublisher(Node):
             [0, 0, -1]
         ])
 
-        self.prev_poses_right = np.zeros((21,3))
+        self.prev_poses_right = np.zeros((21, 3))
         self.start_poses_right = False
 
-        self.prev_poses_left = np.zeros((21,3))
+        self.prev_poses_left = np.zeros((21, 3))
         self.start_poses_left = False
 
         # Cached transform constants for hot paths
@@ -349,7 +415,8 @@ class VRTrajectoryPublisher(Node):
         self.right_hand_data = None
         self.head_transform_matrix = np.eye(4)
         self.head_inverse_matrix = np.eye(4)
-        self.head_ros_quat = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)  # head orientation in ROS frame for base_link pose
+        # head orientation in ROS frame for base_link pose
+        self.head_ros_quat = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
         self.hand_pose_is_head_relative = self.declare_parameter(
             'hand_pose_is_head_relative', True
         ).value
@@ -381,11 +448,18 @@ class VRTrajectoryPublisher(Node):
         self.low_pass_filter_alpha = 0.9
         self.pose_filters = {}
 
-        # Lift low-pass filter (smooths height command) and max velocity (m/s, same units as lift position)
+        # Lift low-pass filter (smooths height command) and max velocity
+        # (m/s, same units as lift position)
         self.declare_parameter('lift_low_pass_alpha', 0.3)
         self.declare_parameter('max_lift_velocity', 0.07)
-        self.lift_low_pass_alpha = self.get_parameter('lift_low_pass_alpha').get_parameter_value().double_value
-        self.max_lift_velocity = self.get_parameter('max_lift_velocity').get_parameter_value().double_value
+        self.lift_low_pass_alpha = (
+            self.get_parameter('lift_low_pass_alpha')
+            .get_parameter_value().double_value
+        )
+        self.max_lift_velocity = (
+            self.get_parameter('max_lift_velocity')
+            .get_parameter_value().double_value
+        )
         self.filtered_lift_position = None
         self.last_lift_time = None
         self.max_elbow_wrist_distance = 0.4
@@ -413,23 +487,26 @@ class VRTrajectoryPublisher(Node):
         self.start_vuer_server()
 
         self.get_logger().info('VR Trajectory Publisher node has been started')
+        vr_status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
         self.get_logger().info(
-            f'VR publishing is {"ENABLED" if self.vr_publishing_enabled else "DISABLED"} by default. '
+            f'VR publishing is {vr_status} by default. '
             f'Send /vr_control/toggle message (True=enable, False=disable).'
         )
 
     def odom_callback(self, msg):
-        """Callback to receive robot odometry for base control."""
+        """Receive robot odometry for base control."""
         self.current_odom = msg
 
     def vr_control_callback(self, msg):
-        """Callback to enable/disable VR publishing based on message content."""
+        """Enable/disable VR publishing based on message content."""
         new_state = bool(msg.data)
 
         if new_state != self.vr_publishing_enabled:
             self.vr_publishing_enabled = new_state
-            status = "ENABLED" if self.vr_publishing_enabled else "DISABLED"
-            self.get_logger().info(f'VR publishing changed to: {status} (message value: {msg.data})')
+            status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
+            self.get_logger().info(
+                f'VR publishing changed to: {status} (message value: {msg.data})'
+            )
 
             if self.vr_publishing_enabled:
                 self.start_poses_left = False
@@ -449,7 +526,9 @@ class VRTrajectoryPublisher(Node):
                     self.initial_odom_position = np.array([pos.x, pos.y])
                     self.initial_odom_yaw = yaw
                     self.get_logger().info(
-                        f'Initial robot odom position: [{self.initial_odom_position[0]:.3f}, {self.initial_odom_position[1]:.3f}], '
+                        f'Initial robot odom position: '
+                        f'[{self.initial_odom_position[0]:.3f}, '
+                        f'{self.initial_odom_position[1]:.3f}], '
                         f'yaw: {self.initial_odom_yaw:.3f} rad'
                     )
                 else:
@@ -478,7 +557,7 @@ class VRTrajectoryPublisher(Node):
 
     def log_status(self):
         """Log current system status for debugging."""
-        vr_status = "ENABLED" if self.vr_publishing_enabled else "DISABLED"
+        vr_status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
         self.get_logger().info(f'Status: VR={vr_status}')
 
     def left_image_callback(self, msg):
@@ -629,9 +708,13 @@ class VRTrajectoryPublisher(Node):
         return ros_pos, ros_quat
 
     def yaw_from_orientation_horizontal(self, ros_quat, fallback_yaw=0.0):
-        """Compute yaw from head orientation by projecting forward direction onto horizontal (X-Y) plane.
+        """
+        Compute yaw from head orientation by projecting forward direction.
+
+        Projects forward direction onto horizontal (X-Y) plane.
         Avoids gimbal lock: pitch/roll (tilt) do not affect the returned yaw.
-        Forward in head frame is -Z; in ROS frame we use only the X-Y part of that direction.
+        Forward in head frame is -Z; in ROS frame we use only the X-Y part of
+        that direction.
         """
         r = R.from_quat(ros_quat)
         # Head forward = -Z in head frame -> in world (ROS) frame
@@ -688,10 +771,15 @@ class VRTrajectoryPublisher(Node):
         pose_role='wrist',
         side='',
     ):
-        """Publish a pose in base_link. When hand_pose_is_head_relative, rotate position and
-        orientation by head pose so head-relative coordinates are correctly expressed in base_link.
         """
-        # Position: head-relative in VR world axes, then vr_to_ros; no head rotation (axes match base_link).
+        Publish a pose in base_link.
+
+        When hand_pose_is_head_relative, rotate position and orientation by
+        head pose so head-relative coordinates are correctly expressed in
+        base_link.
+        """
+        # Position: head-relative in VR world axes, then vr_to_ros;
+        # no head rotation (axes match base_link).
         scaled_pos = camera_relative_position * vr_scale
         base_position = scaled_pos - self.zedm_to_base_offset
 
@@ -709,7 +797,8 @@ class VRTrajectoryPublisher(Node):
                 base_position = base_position.copy()
                 base_position[2] -= self.z_calibration_offset
 
-        # Orientation: keep camera-relative; do not multiply by head so pose does not rotate when user rotates body
+        # Orientation: keep camera-relative; do not multiply by head so pose
+        # does not rotate when user rotates body
         camera_relative_rotation = R.from_quat(camera_relative_quaternion)
         if apply_right_z_flip:
             rot_z_180 = R.from_euler('z', 180, degrees=True)
@@ -738,11 +827,16 @@ class VRTrajectoryPublisher(Node):
             if self.wrist_debug_log_counter % self.wrist_debug_log_every_n == 0:
                 self.get_logger().info(
                     f'[WRIST {side}] '
-                    f'raw=[{camera_relative_position[0]:+.3f}, {camera_relative_position[1]:+.3f}, {camera_relative_position[2]:+.3f}] '
-                    f'*scale({vr_scale})=[{scaled_pos[0]:+.3f}, {scaled_pos[1]:+.3f}, {scaled_pos[2]:+.3f}] '
+                    f'raw=[{camera_relative_position[0]:+.3f}, '
+                    f'{camera_relative_position[1]:+.3f}, '
+                    f'{camera_relative_position[2]:+.3f}] '
+                    f'*scale({vr_scale})=[{scaled_pos[0]:+.3f}, '
+                    f'{scaled_pos[1]:+.3f}, {scaled_pos[2]:+.3f}] '
                     f'before_zcal_z={before_zcal:+.3f} '
                     f'z_cal_off={self.z_calibration_offset:+.3f} '
-                    f'final=[{target_pose.pose.position.x:+.3f}, {target_pose.pose.position.y:+.3f}, {target_pose.pose.position.z:+.3f}]'
+                    f'final=[{target_pose.pose.position.x:+.3f}, '
+                    f'{target_pose.pose.position.y:+.3f}, '
+                    f'{target_pose.pose.position.z:+.3f}]'
                 )
         target_pose.pose.orientation.x = arm_quaternion[0]
         target_pose.pose.orientation.y = arm_quaternion[1]
@@ -752,14 +846,17 @@ class VRTrajectoryPublisher(Node):
 
     def get_joint_matrix(self, hand_data, joint_index):
         """Extract joint transformation matrix from hand data."""
-        arr = hand_data if isinstance(hand_data, np.ndarray) else np.asarray(hand_data, dtype=np.float64)
+        arr = (
+            hand_data if isinstance(hand_data, np.ndarray)
+            else np.asarray(hand_data, dtype=np.float64)
+        )
         start_idx = joint_index * 16
         end_idx = start_idx + 16
         matrix_data = arr[start_idx:end_idx]
         return matrix_data.reshape(4, 4, order='F')
 
     def quat_inverse(self, q):
-        """Returns the inverse of a quaternion."""
+        """Return the inverse of a quaternion."""
         norm = q.x**2 + q.y**2 + q.z**2 + q.w**2
         if norm == 0:
             return Quaternion()
@@ -842,9 +939,18 @@ class VRTrajectoryPublisher(Node):
         wrist_pos_ros = None
         wrist_quat_ros = None
 
-        hand_arr = hand_data if isinstance(hand_data, np.ndarray) else np.asarray(hand_data, dtype=np.float64)
-        head_rot_inv = self.head_inverse_matrix[:3, :3] if self.hand_pose_is_head_relative else None
-        head_world_pos = self.head_transform_matrix[:3, 3] if self.hand_pose_is_head_relative else None
+        hand_arr = (
+            hand_data if isinstance(hand_data, np.ndarray)
+            else np.asarray(hand_data, dtype=np.float64)
+        )
+        head_rot_inv = (
+            self.head_inverse_matrix[:3, :3]
+            if self.hand_pose_is_head_relative else None
+        )
+        head_world_pos = (
+            self.head_transform_matrix[:3, 3]
+            if self.hand_pose_is_head_relative else None
+        )
 
         try:
             for i in self.required_vr_frames:
@@ -853,13 +959,18 @@ class VRTrajectoryPublisher(Node):
                 world_rot = world_joint_matrix[:3, :3]
                 world_pos = world_joint_matrix[:3, 3]
 
-                if self.hand_pose_is_head_relative and head_rot_inv is not None and head_world_pos is not None:
+                if (self.hand_pose_is_head_relative and head_rot_inv is not None
+                        and head_world_pos is not None):
                     relative_pos_vr = head_rot_inv @ (world_pos - head_world_pos)
                     temp_joints[pose_counter, :] = relative_pos_vr
                     if i == 0:
                         wrist_rot = head_rot_inv @ world_rot
-                        wrist_pos_ros = (self.BODY_HEAD_TO_ROS_POSITION @ relative_pos_vr).astype(np.float64)
-                        wrist_quat_ros = (self.body_head_to_ros_rot * R.from_matrix(wrist_rot)).as_quat()
+                        wrist_pos_ros = (
+                            self.BODY_HEAD_TO_ROS_POSITION @ relative_pos_vr
+                        ).astype(np.float64)
+                        wrist_quat_ros = (
+                            self.body_head_to_ros_rot * R.from_matrix(wrist_rot)
+                        ).as_quat()
                 else:
                     relative_pos_vr = world_pos
                     temp_joints[pose_counter, :] = relative_pos_vr
@@ -941,7 +1052,7 @@ class VRTrajectoryPublisher(Node):
         self.server_thread.start()
 
     async def main_hand_tracking(self, session):
-        """Main hand tracking session."""
+        """Run main hand tracking session."""
         try:
             fps = self.fps
             self.current_session = session
@@ -1013,21 +1124,29 @@ class VRTrajectoryPublisher(Node):
             if not isinstance(event.value, dict):
                 return
 
-            # Only store hand data; processing happens in on_body_tracking_move with same-frame head
+            # Only store hand data; processing happens in on_body_tracking_move
+            # with same-frame head
             if 'left' in event.value:
                 left_data = event.value['left']
                 if isinstance(left_data, (list, np.ndarray)) and len(left_data) == 400:
-                    self.left_hand_data = left_data if isinstance(left_data, np.ndarray) else np.asarray(left_data, dtype=np.float64)
+                    self.left_hand_data = (
+                        left_data if isinstance(left_data, np.ndarray)
+                        else np.asarray(left_data, dtype=np.float64)
+                    )
             if 'right' in event.value:
                 right_data = event.value['right']
                 if isinstance(right_data, (list, np.ndarray)) and len(right_data) == 400:
-                    self.right_hand_data = right_data if isinstance(right_data, np.ndarray) else np.asarray(right_data, dtype=np.float64)
+                    self.right_hand_data = (
+                        right_data if isinstance(right_data, np.ndarray)
+                        else np.asarray(right_data, dtype=np.float64)
+                    )
 
         except Exception as e:
             self.get_logger().error(f'Error in hand move event: {e}')
 
     async def on_body_tracking_move(self, event, session):
-        """Handle body tracking events (head, lift, base, elbow poses).
+        """
+        Handle body tracking events (head, lift, base, elbow poses).
 
         Uses 'head' joint for everything: head_transform_matrix, head_inverse_matrix,
         lift (height), head joint, base position XY and yaw.
@@ -1042,10 +1161,16 @@ class VRTrajectoryPublisher(Node):
             if not isinstance(event.value, dict) or not event.value:
                 return
 
-            body_data = event.value.get('body') if isinstance(event.value, dict) else None
+            body_data = (
+                event.value.get('body')
+                if isinstance(event.value, dict) else None
+            )
             if not isinstance(body_data, (list, tuple, np.ndarray)):
                 return
-            body_array = body_data if isinstance(body_data, np.ndarray) else np.asarray(body_data, dtype=np.float64)
+            body_array = (
+                body_data if isinstance(body_data, np.ndarray)
+                else np.asarray(body_data, dtype=np.float64)
+            )
 
             # --- Head joint: for all head-related processing ---
             # get_body_joint_matrix_from_flat now rejects degenerate matrices (det~0)
@@ -1058,16 +1183,26 @@ class VRTrajectoryPublisher(Node):
                 ros_pos, ros_quat = self.vr_to_ros_transform(pos, quat)
                 self.head_ros_quat = np.array(ros_quat, dtype=np.float64)
 
-                if rclpy.ok() and hasattr(self, 'wrist_debug_log_counter') and self.wrist_debug_log_counter % self.wrist_debug_log_every_n == 0:
+                if (rclpy.ok() and hasattr(self, 'wrist_debug_log_counter')
+                        and self.wrist_debug_log_counter
+                        % self.wrist_debug_log_every_n == 0):
                     self.get_logger().info(
                         f'[HEAD] ros=[{ros_pos[0]:+.3f}, {ros_pos[1]:+.3f}, {ros_pos[2]:+.3f}]'
                     )
 
                 current_camera_height = float(ros_pos[2])
-                current_camera_position = np.array([ros_pos[0], ros_pos[1]], dtype=np.float64)
-                # Yaw from horizontal projection of head forward to avoid gimbal lock (pitch/roll not affecting yaw)
-                fallback_yaw = float(self.initial_camera_yaw) if self.initial_camera_yaw is not None else 0.0
-                current_camera_yaw = self.yaw_from_orientation_horizontal(ros_quat, fallback_yaw=fallback_yaw)
+                current_camera_position = np.array(
+                    [ros_pos[0], ros_pos[1]], dtype=np.float64
+                )
+                # Yaw from horizontal projection of head forward to avoid gimbal
+                # lock (pitch/roll not affecting yaw)
+                fallback_yaw = (
+                    float(self.initial_camera_yaw)
+                    if self.initial_camera_yaw is not None else 0.0
+                )
+                current_camera_yaw = self.yaw_from_orientation_horizontal(
+                    ros_quat, fallback_yaw=fallback_yaw
+                )
                 r = R.from_quat(ros_quat)
 
                 # Set initial references (only from validated data)
@@ -1140,12 +1275,18 @@ class VRTrajectoryPublisher(Node):
 
                 # Base: cmd_vel from head position/yaw error vs odom (P control)
                 self.cmd_vel_log_counter += 1
-                if (self.initial_camera_position is not None and self.initial_camera_yaw is not None and
-                    self.initial_odom_position is not None and self.initial_odom_yaw is not None and
-                    self.enable_base_publishing and self.current_odom is not None):
+                if (self.initial_camera_position is not None
+                        and self.initial_camera_yaw is not None
+                        and self.initial_odom_position is not None
+                        and self.initial_odom_yaw is not None
+                        and self.enable_base_publishing
+                        and self.current_odom is not None):
                     current_odom_pos = self.current_odom.pose.pose.position
                     current_odom_quat = self.current_odom.pose.pose.orientation
-                    r_odom = R.from_quat([current_odom_quat.x, current_odom_quat.y, current_odom_quat.z, current_odom_quat.w])
+                    r_odom = R.from_quat([
+                        current_odom_quat.x, current_odom_quat.y,
+                        current_odom_quat.z, current_odom_quat.w
+                    ])
                     _, _, current_odom_yaw = r_odom.as_euler('xyz')
                     current_odom_position = np.array([current_odom_pos.x, current_odom_pos.y])
                     robot_movement_position = current_odom_position - self.initial_odom_position
@@ -1201,16 +1342,21 @@ class VRTrajectoryPublisher(Node):
                         if self.enable_base_debug_topics:
                             self.base_divergence_pub.publish(Bool(data=True))
                         self.base_divergence_log_counter += 1
-                        if self.base_divergence_log_counter % self.base_divergence_log_every_n == 0:
+                        if (self.base_divergence_log_counter
+                                % self.base_divergence_log_every_n == 0):
                             self.get_logger().warn(
-                                f'[BODY] Base divergence: pos_err_norm={position_error_norm:.3f} (>{self.base_divergence_position_threshold}), '
-                                f'yaw_err={yaw_error:+.3f} (|>{self.base_divergence_yaw_threshold})'
+                                f'[BODY] Base divergence: '
+                                f'pos_err_norm={position_error_norm:.3f} '
+                                f'(>{self.base_divergence_position_threshold}), '
+                                f'yaw_err={yaw_error:+.3f} '
+                                f'(|>{self.base_divergence_yaw_threshold})'
                             )
                     else:
                         if self.enable_base_debug_topics:
                             self.base_divergence_pub.publish(Bool(data=False))
 
-                    # Debug topics (enable_base_debug_topics): VR goal pose and divergence for PlotJuggler vs /odom
+                    # Debug topics (enable_base_debug_topics): VR goal pose and
+                    # divergence for PlotJuggler vs /odom
                     if self.enable_base_debug_topics and rclpy.ok():
                         vr_goal_position = self.initial_odom_position + relative_position
                         vr_goal_yaw = self.initial_odom_yaw + relative_yaw
@@ -1227,12 +1373,17 @@ class VRTrajectoryPublisher(Node):
                         goal_msg.pose.orientation.w = float(q_goal[3])
                         self.vr_camera_goal_pub.publish(goal_msg)
 
-                    if rclpy.ok() and self.cmd_vel_log_counter % self.cmd_vel_log_every_n == 0:
+                    if (rclpy.ok()
+                            and self.cmd_vel_log_counter
+                            % self.cmd_vel_log_every_n == 0):
                         self.get_logger().info(
-                            f'[BODY] cmd_vel: linear=[{twist_msg.linear.x:+.3f}, {twist_msg.linear.y:+.3f}], '
+                            f'[BODY] cmd_vel: linear=[{twist_msg.linear.x:+.3f}, '
+                            f'{twist_msg.linear.y:+.3f}], '
                             f'angular.z={twist_msg.angular.z:+.3f} | '
-                            f'pos_err_world=[{position_error[0]:+.4f}, {position_error[1]:+.4f}], '
-                            f'pos_err_base=[{position_error_base[0]:+.4f}, {position_error_base[1]:+.4f}], '
+                            f'pos_err_world=[{position_error[0]:+.4f}, '
+                            f'{position_error[1]:+.4f}], '
+                            f'pos_err_base=[{position_error_base[0]:+.4f}, '
+                            f'{position_error_base[1]:+.4f}], '
                             f'yaw_err={yaw_error:+.4f}'
                         )
 
@@ -1264,12 +1415,15 @@ class VRTrajectoryPublisher(Node):
                     self.publish_body_joint_pose(right_matrix, self.right_elbow_pub, side='right')
 
         except Exception as e:
-            if not rclpy.ok() or 'Destroyable' in str(type(e).__name__) or 'destruction' in str(e).lower():
+            if (not rclpy.ok()
+                    or 'Destroyable' in str(type(e).__name__)
+                    or 'destruction' in str(e).lower()):
                 return
             self.get_logger().error(f'Error in body tracking event: {e}')
 
     def get_body_joint_matrix_from_flat(self, body_array, joint_name):
-        """Extract a 4x4 matrix for a body joint from flattened body array.
+        """
+        Extract a 4x4 matrix for a body joint from flattened body array.
 
         Returns None if joint not found, data too short, or matrix is degenerate
         (e.g. all zeros when body tracking is not yet initialized).
@@ -1279,7 +1433,10 @@ class VRTrajectoryPublisher(Node):
         index = BODY_JOINT_KEYS.index(joint_name)
         start = index * 16
         end = start + 16
-        arr = body_array if isinstance(body_array, np.ndarray) else np.asarray(body_array, dtype=np.float64)
+        arr = (
+            body_array if isinstance(body_array, np.ndarray)
+            else np.asarray(body_array, dtype=np.float64)
+        )
         if arr.size < end:
             return None
         matrix = arr[start:end]

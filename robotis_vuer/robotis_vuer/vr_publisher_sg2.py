@@ -21,19 +21,19 @@ import os
 import socket
 import threading
 
+from geometry_msgs.msg import Point, PoseStamped, Quaternion, Twist
 import nest_asyncio
 import numpy as np
 import rclpy
-from geometry_msgs.msg import Point, PoseStamped, Quaternion, Twist
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from scipy.spatial.transform import Rotation as R
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Float32
 from std_srvs.srv import Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from vuer import Vuer
-from vuer.schemas import MotionControllers, Body
+from vuer.schemas import Body, MotionControllers
 
 # Allow nested asyncio execution
 nest_asyncio.apply()
@@ -99,7 +99,7 @@ class VRTrajectoryPublisher(Node):
             cert=cert_file,
             key=key_file,
             ws=ws_url,
-            queries=dict(grid=False, reconnect=True),
+            queries={'grid': False, 'reconnect': True},
             queue_len=3
         )
 
@@ -130,17 +130,35 @@ class VRTrajectoryPublisher(Node):
             self.vr_stream_qos
         )
 
-        self.left_squeeze_pub = self.create_publisher(Float32, '/vr_controller/left_squeeze', self.vr_stream_qos)
-        self.right_squeeze_pub = self.create_publisher(Float32, '/vr_controller/right_squeeze', self.vr_stream_qos)
-        self.left_trigger_pub = self.create_publisher(Float32, '/vr_controller/left_trigger', self.vr_stream_qos)
-        self.right_trigger_pub = self.create_publisher(Float32, '/vr_controller/right_trigger', self.vr_stream_qos)
-        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', self.vr_stream_qos)
+        self.left_squeeze_pub = self.create_publisher(
+            Float32, '/vr_controller/left_squeeze', self.vr_stream_qos
+        )
+        self.right_squeeze_pub = self.create_publisher(
+            Float32, '/vr_controller/right_squeeze', self.vr_stream_qos
+        )
+        self.left_trigger_pub = self.create_publisher(
+            Float32, '/vr_controller/left_trigger', self.vr_stream_qos
+        )
+        self.right_trigger_pub = self.create_publisher(
+            Float32, '/vr_controller/right_trigger', self.vr_stream_qos
+        )
+        self.cmd_vel_pub = self.create_publisher(
+            Twist, '/cmd_vel', self.vr_stream_qos
+        )
 
         # Wrist/elbow pose publishers for visualization
-        self.left_wrist_rviz_pub = self.create_publisher(PoseStamped, '/l_goal_pose', self.vr_stream_qos)
-        self.right_wrist_rviz_pub = self.create_publisher(PoseStamped, '/r_goal_pose', self.vr_stream_qos)
-        self.left_elbow_rviz_pub = self.create_publisher(PoseStamped, '/l_elbow_pose', self.vr_stream_qos)
-        self.right_elbow_rviz_pub = self.create_publisher(PoseStamped, '/r_elbow_pose', self.vr_stream_qos)
+        self.left_wrist_rviz_pub = self.create_publisher(
+            PoseStamped, '/l_goal_pose', self.vr_stream_qos
+        )
+        self.right_wrist_rviz_pub = self.create_publisher(
+            PoseStamped, '/r_goal_pose', self.vr_stream_qos
+        )
+        self.left_elbow_rviz_pub = self.create_publisher(
+            PoseStamped, '/l_elbow_pose', self.vr_stream_qos
+        )
+        self.right_elbow_rviz_pub = self.create_publisher(
+            PoseStamped, '/r_elbow_pose', self.vr_stream_qos
+        )
 
         # Reactivate service client (call when both A buttons are pressed)
         self.declare_parameter('reactivate_service', '/reactivate')
@@ -182,38 +200,74 @@ class VRTrajectoryPublisher(Node):
         ], dtype=np.float64)
         self.wrist_position_offsets = {
             'left': np.array([
-                self.get_parameter('left_wrist_offset_x').get_parameter_value().double_value,
-                self.get_parameter('left_wrist_offset_y').get_parameter_value().double_value,
-                self.get_parameter('left_wrist_offset_z').get_parameter_value().double_value,
+                self.get_parameter(
+                    'left_wrist_offset_x'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'left_wrist_offset_y'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'left_wrist_offset_z'
+                ).get_parameter_value().double_value,
             ], dtype=np.float64),
             'right': np.array([
-                self.get_parameter('right_wrist_offset_x').get_parameter_value().double_value,
-                self.get_parameter('right_wrist_offset_y').get_parameter_value().double_value,
-                self.get_parameter('right_wrist_offset_z').get_parameter_value().double_value,
+                self.get_parameter(
+                    'right_wrist_offset_x'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'right_wrist_offset_y'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'right_wrist_offset_z'
+                ).get_parameter_value().double_value,
             ], dtype=np.float64),
         }
         self.elbow_position_offsets = {
             'left': np.array([
-                self.get_parameter('left_elbow_offset_x').get_parameter_value().double_value,
-                self.get_parameter('left_elbow_offset_y').get_parameter_value().double_value,
-                self.get_parameter('left_elbow_offset_z').get_parameter_value().double_value,
+                self.get_parameter(
+                    'left_elbow_offset_x'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'left_elbow_offset_y'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'left_elbow_offset_z'
+                ).get_parameter_value().double_value,
             ], dtype=np.float64),
             'right': np.array([
-                self.get_parameter('right_elbow_offset_x').get_parameter_value().double_value,
-                self.get_parameter('right_elbow_offset_y').get_parameter_value().double_value,
-                self.get_parameter('right_elbow_offset_z').get_parameter_value().double_value,
+                self.get_parameter(
+                    'right_elbow_offset_x'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'right_elbow_offset_y'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'right_elbow_offset_z'
+                ).get_parameter_value().double_value,
             ], dtype=np.float64),
         }
         self.wrist_rotation_offsets = {
             'left': R.from_euler('xyz', [
-                self.get_parameter('left_wrist_roll_offset_deg').get_parameter_value().double_value,
-                self.get_parameter('left_wrist_pitch_offset_deg').get_parameter_value().double_value,
-                self.get_parameter('left_wrist_yaw_offset_deg').get_parameter_value().double_value,
+                self.get_parameter(
+                    'left_wrist_roll_offset_deg'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'left_wrist_pitch_offset_deg'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'left_wrist_yaw_offset_deg'
+                ).get_parameter_value().double_value,
             ], degrees=True),
             'right': R.from_euler('xyz', [
-                self.get_parameter('right_wrist_roll_offset_deg').get_parameter_value().double_value,
-                self.get_parameter('right_wrist_pitch_offset_deg').get_parameter_value().double_value,
-                self.get_parameter('right_wrist_yaw_offset_deg').get_parameter_value().double_value,
+                self.get_parameter(
+                    'right_wrist_roll_offset_deg'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'right_wrist_pitch_offset_deg'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'right_wrist_yaw_offset_deg'
+                ).get_parameter_value().double_value,
             ], degrees=True),
         }
         self.trigger_offsets = {
@@ -227,7 +281,8 @@ class VRTrajectoryPublisher(Node):
         self.goal_pose_position_scale = float(self.get_parameter('goal_pose_position_scale').value)
         if not np.isfinite(self.goal_pose_position_scale) or self.goal_pose_position_scale <= 0.0:
             self.get_logger().warn(
-                f'Invalid goal_pose_position_scale={self.goal_pose_position_scale}; fallback to 1.0'
+                f'Invalid goal_pose_position_scale='
+                f'{self.goal_pose_position_scale}; fallback to 1.0'
             )
             self.goal_pose_position_scale = 1.0
         self.pose_publish_hz = float(self.get_parameter('pose_publish_hz').value)
@@ -286,7 +341,10 @@ class VRTrajectoryPublisher(Node):
         self.start_vuer_server()
 
         self.get_logger().info('VR Trajectory Publisher node has been started')
-        self.get_logger().info('VR publishing is DISABLED by default. Send /vr_control/toggle message (True=enable, False=disable).')
+        self.get_logger().info(
+            'VR publishing is DISABLED by default. '
+            'Send /vr_control/toggle message (True=enable, False=disable).'
+        )
         self.get_logger().info(
             f'Stick swap config: left_stick_swap_xy={self.left_stick_swap_xy}, '
             f'right_stick_swap_xy={self.right_stick_swap_xy}'
@@ -299,31 +357,48 @@ class VRTrajectoryPublisher(Node):
             f'Elbow offsets | left_pos={self.elbow_position_offsets["left"].tolist()}, '
             f'right_pos={self.elbow_position_offsets["right"].tolist()}'
         )
+        left_wrist_offsets = [
+            self.get_parameter('left_wrist_roll_offset_deg').value,
+            self.get_parameter('left_wrist_pitch_offset_deg').value,
+            self.get_parameter('left_wrist_yaw_offset_deg').value
+        ]
+        right_wrist_offsets = [
+            self.get_parameter('right_wrist_roll_offset_deg').value,
+            self.get_parameter('right_wrist_pitch_offset_deg').value,
+            self.get_parameter('right_wrist_yaw_offset_deg').value
+        ]
         self.get_logger().info(
-            'Wrist rot offsets deg | '
-            f'left={[self.get_parameter("left_wrist_roll_offset_deg").value, self.get_parameter("left_wrist_pitch_offset_deg").value, self.get_parameter("left_wrist_yaw_offset_deg").value]}, '
-            f'right={[self.get_parameter("right_wrist_roll_offset_deg").value, self.get_parameter("right_wrist_pitch_offset_deg").value, self.get_parameter("right_wrist_yaw_offset_deg").value]}'
+            f'Wrist rot offsets deg | left={left_wrist_offsets}, '
+            f'right={right_wrist_offsets}'
         )
         self.get_logger().info(
-            f'Trigger calibration | left=(offset={self.trigger_offsets["left"]:+.3f}, scale={self.trigger_scales["left"]:.3f}), '
-            f'right=(offset={self.trigger_offsets["right"]:+.3f}, scale={self.trigger_scales["right"]:.3f})'
+            f'Trigger calibration | '
+            f'left=(offset={self.trigger_offsets["left"]:+.3f}, '
+            f'scale={self.trigger_scales["left"]:.3f}), '
+            f'right=(offset={self.trigger_offsets["right"]:+.3f}, '
+            f'scale={self.trigger_scales["right"]:.3f})'
         )
         self.get_logger().info(f'Goal pose position scale={self.goal_pose_position_scale:.3f}')
-        self.get_logger().info(f'Stream fps={self.fps}, pose publish hz={self.pose_publish_hz:.1f}, queue_depth=1')
+        self.get_logger().info(
+            f'Stream fps={self.fps}, pose publish hz={self.pose_publish_hz:.1f}, '
+            f'queue_depth=1'
+        )
         self.get_logger().info(
             f'Lift->arm Z coupling: enabled={self.apply_lift_to_arm_z}, '
             f'scale={self.lift_to_arm_z_scale:.3f}'
         )
 
     def vr_control_callback(self, msg):
-        """Callback to enable/disable VR publishing based on message content."""
+        """Enable/disable VR publishing based on message content."""
         new_state = bool(msg.data)  # Read message content
 
         # Only log if state actually changed
         if new_state != self.vr_publishing_enabled:
             self.vr_publishing_enabled = new_state
-            status = "ENABLED" if self.vr_publishing_enabled else "DISABLED"
-            self.get_logger().info(f'VR publishing changed to: {status} (message value: {msg.data})')
+            status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
+            self.get_logger().info(
+                f'VR publishing changed to: {status} (message value: {msg.data})'
+            )
 
             if not self.vr_publishing_enabled:
                 self.get_logger().info('VR publishing disabled')
@@ -340,7 +415,9 @@ class VRTrajectoryPublisher(Node):
         if not self.reactivate_client.service_is_ready():
             now_sec = self.get_clock().now().nanoseconds / 1e9
             if (now_sec - self.last_reactivate_service_warn_sec) >= 5.0:
-                self.get_logger().warn(f'Reactivate service "{self.reactivate_service}" not available')
+                self.get_logger().warn(
+                    f'Reactivate service "{self.reactivate_service}" not available'
+                )
                 self.last_reactivate_service_warn_sec = now_sec
             return
 
@@ -371,7 +448,10 @@ class VRTrajectoryPublisher(Node):
     def calibrate_trigger(self, side, raw_value):
         """Apply trigger offset/scale calibration and clamp to [0, 1]."""
         side_key = side if side in ('left', 'right') else 'left'
-        calibrated = (float(raw_value) + self.trigger_offsets[side_key]) * self.trigger_scales[side_key]
+        calibrated = (
+            (float(raw_value) + self.trigger_offsets[side_key])
+            * self.trigger_scales[side_key]
+        )
         return float(np.clip(calibrated, 0.0, 1.0))
 
     def joint_states_callback(self, msg):
@@ -501,7 +581,9 @@ class VRTrajectoryPublisher(Node):
         end_idx = start_idx + 16
         if body_array.size < end_idx:
             return None
-        joint_matrix = np.asarray(body_array[start_idx:end_idx], dtype=np.float64).reshape(4, 4, order='F')
+        joint_matrix = np.asarray(
+            body_array[start_idx:end_idx], dtype=np.float64
+        ).reshape(4, 4, order='F')
         if not np.all(np.isfinite(joint_matrix)):
             return None
         if abs(float(np.linalg.det(joint_matrix[:3, :3]))) < 1e-6:
@@ -515,12 +597,18 @@ class VRTrajectoryPublisher(Node):
                 return
             pose_key = f'{side}_wrist'
             now_sec = self.get_clock().now().nanoseconds / 1e9
-            if self.pose_min_period > 0.0 and (now_sec - self.last_pose_publish_sec[pose_key]) < self.pose_min_period:
+            if (self.pose_min_period > 0.0 and
+                    (now_sec - self.last_pose_publish_sec[pose_key])
+                    < self.pose_min_period):
                 return
 
             relative_joint_matrix = self.head_inverse_matrix @ world_joint_matrix
-            relative_pos_head, relative_quat_head = self.matrix_to_pose(relative_joint_matrix)
-            relative_pos_ros, relative_quat_ros = self.vr_to_ros_transform(relative_pos_head, relative_quat_head)
+            relative_pos_head, relative_quat_head = self.matrix_to_pose(
+                relative_joint_matrix
+            )
+            relative_pos_ros, relative_quat_ros = self.vr_to_ros_transform(
+                relative_pos_head, relative_quat_head
+            )
             relative_pos_ros = self.scale_goal_position(relative_pos_ros)
             relative_rot_ros = R.from_quat(relative_quat_ros)
 
@@ -528,7 +616,9 @@ class VRTrajectoryPublisher(Node):
             base_position = relative_pos_ros - self.camera_to_base_offset
             base_position = base_position.copy()
             base_position[2] += self.get_lift_z_delta_for_arm_pose()
-            base_position, base_rotation = self.apply_wrist_offsets(side, base_position, relative_rot_ros)
+            base_position, base_rotation = self.apply_wrist_offsets(
+                side, base_position, relative_rot_ros
+            )
             arm_quaternion = base_rotation.as_quat()  # [x, y, z, w]
 
             wrist_pose = PoseStamped()
@@ -557,12 +647,18 @@ class VRTrajectoryPublisher(Node):
                 return
             pose_key = f'{side}_elbow'
             now_sec = self.get_clock().now().nanoseconds / 1e9
-            if self.pose_min_period > 0.0 and (now_sec - self.last_pose_publish_sec[pose_key]) < self.pose_min_period:
+            if (self.pose_min_period > 0.0 and
+                    (now_sec - self.last_pose_publish_sec[pose_key])
+                    < self.pose_min_period):
                 return
 
             relative_joint_matrix = self.head_inverse_matrix @ world_joint_matrix
-            relative_pos_head, relative_quat_head = self.matrix_to_pose(relative_joint_matrix)
-            relative_pos_ros, relative_quat_ros = self.vr_to_ros_transform(relative_pos_head, relative_quat_head)
+            relative_pos_head, relative_quat_head = self.matrix_to_pose(
+                relative_joint_matrix
+            )
+            relative_pos_ros, relative_quat_ros = self.vr_to_ros_transform(
+                relative_pos_head, relative_quat_head
+            )
             relative_pos_ros = self.scale_goal_position(relative_pos_ros)
             elbow_rotation = R.from_quat(relative_quat_ros)
 
@@ -615,7 +711,9 @@ class VRTrajectoryPublisher(Node):
                     left_thumbstick_value = [lx, ly]
 
             if isinstance(self.right_controller_state, dict):
-                right_thumbstick_pressed = bool(self.right_controller_state.get('thumbstick', False))
+                right_thumbstick_pressed = bool(
+                    self.right_controller_state.get('thumbstick', False)
+                )
                 thumbstick_val = self.right_controller_state.get('thumbstickValue', [0.0, 0.0])
                 if isinstance(thumbstick_val, (list, tuple)) and len(thumbstick_val) >= 2:
                     rx = float(thumbstick_val[0])
@@ -716,8 +814,14 @@ class VRTrajectoryPublisher(Node):
                 base_head_joint1_position = self.head_joint1_current_position
                 base_head_joint2_position = self.head_joint2_current_position
 
-            new_head_joint1_position = base_head_joint1_position + deadzone_applied_x * self.left_jog_scale
-            new_head_joint2_position = base_head_joint2_position + deadzone_applied_y * self.left_jog_scale
+            new_head_joint1_position = (
+                base_head_joint1_position
+                + deadzone_applied_x * self.left_jog_scale
+            )
+            new_head_joint2_position = (
+                base_head_joint2_position
+                + deadzone_applied_y * self.left_jog_scale
+            )
 
             msg = JointTrajectory()
             msg.joint_names = ['head_joint1', 'head_joint2']
@@ -764,9 +868,12 @@ class VRTrajectoryPublisher(Node):
 
             now_sec = self.get_clock().now().nanoseconds / 1e9
             # Keep sending at limited rate while moving, but suppress identical zero spam.
-            if is_same_command and abs(cmd_tuple[0]) < 1e-6 and abs(cmd_tuple[1]) < 1e-6 and abs(cmd_tuple[2]) < 1e-6:
+            if (is_same_command and abs(cmd_tuple[0]) < 1e-6
+                    and abs(cmd_tuple[1]) < 1e-6
+                    and abs(cmd_tuple[2]) < 1e-6):
                 return
-            if (now_sec - self.last_cmd_vel_publish_sec) < self.control_min_period and is_same_command:
+            if ((now_sec - self.last_cmd_vel_publish_sec) < self.control_min_period
+                    and is_same_command):
                 return
 
             self.cmd_vel_pub.publish(twist_msg)
@@ -819,7 +926,8 @@ class VRTrajectoryPublisher(Node):
         target_pose.header.stamp = self.get_clock().now().to_msg()
         target_pose.header.frame_id = 'base_link'
 
-        target_pose.pose.position.x = base_position[0]-0.15  # Small offset for better visualization
+        # Small offset for better visualization
+        target_pose.pose.position.x = base_position[0] - 0.15
         target_pose.pose.position.y = base_position[1]
         target_pose.pose.position.z = base_position[2]
 
@@ -851,7 +959,7 @@ class VRTrajectoryPublisher(Node):
         self.server_thread.start()
 
     async def main_hand_tracking(self, session):
-        """Main controller/body tracking session."""
+        """Run main controller/body tracking session."""
         try:
             fps = self.fps
             self.get_logger().info('Starting controller/body tracking session')
@@ -896,13 +1004,18 @@ class VRTrajectoryPublisher(Node):
             if not isinstance(body_data, (list, tuple, np.ndarray)):
                 return
 
-            body_array = body_data if isinstance(body_data, np.ndarray) else np.asarray(body_data, dtype=np.float64)
+            body_array = (
+                body_data if isinstance(body_data, np.ndarray)
+                else np.asarray(body_data, dtype=np.float64)
+            )
             start_idx = BODY_HEAD_INDEX * 16
             end_idx = start_idx + 16
             if body_array.size < end_idx:
                 return
 
-            head_matrix = np.asarray(body_array[start_idx:end_idx], dtype=np.float64).reshape(4, 4, order='F')
+            head_matrix = np.asarray(
+                body_array[start_idx:end_idx], dtype=np.float64
+            ).reshape(4, 4, order='F')
             if not np.all(np.isfinite(head_matrix)):
                 return
 
@@ -916,11 +1029,15 @@ class VRTrajectoryPublisher(Node):
             except np.linalg.LinAlgError:
                 return
 
-            left_elbow_matrix = self.get_body_joint_matrix_from_flat(body_array, BODY_LEFT_ELBOW_INDEX)
+            left_elbow_matrix = self.get_body_joint_matrix_from_flat(
+                body_array, BODY_LEFT_ELBOW_INDEX
+            )
             if left_elbow_matrix is not None:
                 self._publish_elbow_pose_from_matrix(left_elbow_matrix, 'left')
 
-            right_elbow_matrix = self.get_body_joint_matrix_from_flat(body_array, BODY_RIGHT_ELBOW_INDEX)
+            right_elbow_matrix = self.get_body_joint_matrix_from_flat(
+                body_array, BODY_RIGHT_ELBOW_INDEX
+            )
             if right_elbow_matrix is not None:
                 self._publish_elbow_pose_from_matrix(right_elbow_matrix, 'right')
 
@@ -983,8 +1100,14 @@ class VRTrajectoryPublisher(Node):
             self.process_thumbstick()
 
             # Call reactivate when both A buttons are pressed (rising edge only)
-            left_a = bool(self.left_controller_state.get('aButton', False)) if isinstance(self.left_controller_state, dict) else False
-            right_a = bool(self.right_controller_state.get('aButton', False)) if isinstance(self.right_controller_state, dict) else False
+            left_a = (
+                bool(self.left_controller_state.get('aButton', False))
+                if isinstance(self.left_controller_state, dict) else False
+            )
+            right_a = (
+                bool(self.right_controller_state.get('aButton', False))
+                if isinstance(self.right_controller_state, dict) else False
+            )
             both_a_now = left_a and right_a
             if both_a_now and not self.both_a_buttons_pressed_prev:
                 self._call_reactivate()
@@ -992,24 +1115,43 @@ class VRTrajectoryPublisher(Node):
 
             left_matrix_raw = data.get('left')
             if isinstance(left_matrix_raw, (list, np.ndarray)) and len(left_matrix_raw) == 16:
-                self.left_controller_matrix = np.asarray(left_matrix_raw, dtype=np.float64).reshape(4, 4, order='F')
+                self.left_controller_matrix = np.asarray(
+                    left_matrix_raw, dtype=np.float64
+                ).reshape(4, 4, order='F')
                 self._publish_wrist_pose_from_matrix(self.left_controller_matrix, 'left')
 
             right_matrix_raw = data.get('right')
             if isinstance(right_matrix_raw, (list, np.ndarray)) and len(right_matrix_raw) == 16:
-                self.right_controller_matrix = np.asarray(right_matrix_raw, dtype=np.float64).reshape(4, 4, order='F')
+                self.right_controller_matrix = np.asarray(
+                    right_matrix_raw, dtype=np.float64
+                ).reshape(4, 4, order='F')
                 self._publish_wrist_pose_from_matrix(self.right_controller_matrix, 'right')
 
             self.controller_log_counter += 1
             if self.controller_log_counter % self.log_every_n == 0:
-                l_trg_raw = float(self.left_controller_state.get('triggerValue', 0.0)) if isinstance(self.left_controller_state, dict) else 0.0
-                r_trg_raw = float(self.right_controller_state.get('triggerValue', 0.0)) if isinstance(self.right_controller_state, dict) else 0.0
+                l_trg_raw = (
+                    float(self.left_controller_state.get('triggerValue', 0.0))
+                    if isinstance(self.left_controller_state, dict) else 0.0
+                )
+                r_trg_raw = (
+                    float(self.right_controller_state.get('triggerValue', 0.0))
+                    if isinstance(self.right_controller_state, dict) else 0.0
+                )
                 l_trg = self.calibrate_trigger('left', l_trg_raw)
                 r_trg = self.calibrate_trigger('right', r_trg_raw)
-                l_stick = self.left_controller_state.get('thumbstickValue', [0.0, 0.0]) if isinstance(self.left_controller_state, dict) else [0.0, 0.0]
-                r_stick = self.right_controller_state.get('thumbstickValue', [0.0, 0.0]) if isinstance(self.right_controller_state, dict) else [0.0, 0.0]
+                l_stick = (
+                    self.left_controller_state.get('thumbstickValue', [0.0, 0.0])
+                    if isinstance(self.left_controller_state, dict)
+                    else [0.0, 0.0]
+                )
+                r_stick = (
+                    self.right_controller_state.get('thumbstickValue', [0.0, 0.0])
+                    if isinstance(self.right_controller_state, dict)
+                    else [0.0, 0.0]
+                )
                 self.get_logger().info(
-                    f'Controller data received | left_matrix={self.left_controller_matrix is not None}, '
+                    f'Controller data received | '
+                    f'left_matrix={self.left_controller_matrix is not None}, '
                     f'right_matrix={self.right_controller_matrix is not None}, '
                     f'left_trigger_raw={l_trg_raw:.3f}, right_trigger_raw={r_trg_raw:.3f}, '
                     f'left_trigger={l_trg:.3f}, right_trigger={r_trg:.3f}, '
