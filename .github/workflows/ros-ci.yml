@@ -75,7 +75,6 @@ jobs:
           target-ros2-distro: ${{ matrix.ros_distribution }}
           vcs-repo-file-url: ""
           source-ros-workspace-path: ros_ws
-          colcon-test-arguments: --allow-empty-externals
           package-name: |
             robotis_applications
             robotis_vuer
