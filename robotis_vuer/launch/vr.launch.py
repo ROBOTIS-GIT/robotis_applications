@@ -14,13 +14,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Authors: Wonho Yun
+# Authors: Wonho Yun, Yeonguk Kim
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
@@ -29,14 +31,21 @@ def generate_launch_description():
         default_value='sh5',
         description='VR model to run: sg2 or sh5',
     )
+    mirror_mode_arg = DeclareLaunchArgument(
+        'mirror_mode',
+        default_value='false',
+        description='Swap left/right VR arm outputs',
+    )
 
     model = LaunchConfiguration('model')
+    mirror_mode = LaunchConfiguration('mirror_mode')
     sg2_node = Node(
         package='robotis_vuer',
         executable='vr_publisher_sg2',
         name='vr_publisher_sg2',
         output='screen',
         emulate_tty=True,
+        parameters=[{'mirror_mode': mirror_mode}],
         condition=IfCondition(
             PythonExpression(["'true' if '", model, "' == 'sg2' else 'false'"])
         ),
@@ -47,6 +56,7 @@ def generate_launch_description():
         name='vr_publisher_sh5',
         output='screen',
         emulate_tty=True,
+        parameters=[{'mirror_mode': mirror_mode}],
         condition=IfCondition(
             PythonExpression(["'true' if '", model, "' == 'sh5' else 'false'"])
         ),
@@ -54,6 +64,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         model_arg,
+        mirror_mode_arg,
         sg2_node,
         sh5_node,
     ])
