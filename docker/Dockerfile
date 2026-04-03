@@ -42,7 +42,7 @@ RUN echo "export PYTHONPATH=/root/vuer/src" >> /root/.bashrc
 WORKDIR ${COLCON_WS}
 RUN mkdir -p ${COLCON_WS}/src && \
     cd ${COLCON_WS}/src && \
-    git clone -b main https://github.com/ROBOTIS-GIT/robotis_interfaces.git && \
+    git clone -b jazzy https://github.com/ROBOTIS-GIT/robotis_interfaces.git && \
     git clone -b feature-vuer https://github.com/ROBOTIS-GIT/robotis_applications.git
 
 RUN cd ${COLCON_WS} && \
