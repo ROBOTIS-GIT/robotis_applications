@@ -503,7 +503,7 @@ class VRTrajectoryPublisher(Node):
         self.current_odom = msg
 
     def reactivate_trigger_callback(self, request, response):
-        """Toggle VR publishing via std_srvs/srv/Trigger"""
+        """Toggle VR publishing via std_srvs/srv/Trigger."""
         del request  # Trigger has empty request
         prev = bool(self.vr_publishing_enabled)
         new_state = not prev
