@@ -1,0 +1,68 @@
+FROM ros:jazzy-ros-base
+
+ARG TARGETARCH
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    COLCON_WS=/root/ros2_ws \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    PYTHONPATH=/root/vuer/src
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    vim \
+    nano \
+    libnss3-tools \
+    python3-pip \
+    python3-colcon-common-extensions && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN curl -JLO "https://dl.filippo.io/mkcert/latest?for=linux/${TARGETARCH}" && \
+    chmod +x mkcert-v*-linux-${TARGETARCH} && \
+    mv mkcert-v*-linux-${TARGETARCH} /usr/local/bin/mkcert
+
+RUN pip3 config set global.break-system-packages true
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip3 install --no-cache-dir -r /tmp/requirements.txt && \
+    rm -f /tmp/requirements.txt
+
+COPY gen_cert.sh /root/gen_cert.sh
+RUN chmod +x /root/gen_cert.sh
+
+RUN cd /root && \
+    git clone -b v0.1.5 https://github.com/ROBOTIS-GIT/vuer.git && \
+    pip3 install --no-cache-dir -e '/root/vuer[all]'
+
+RUN python3 -c "from vuer import Vuer"
+
+RUN echo "export PYTHONPATH=/root/vuer/src" >> /root/.bashrc
+
+WORKDIR ${COLCON_WS}
+RUN mkdir -p ${COLCON_WS}/src && \
+    cd ${COLCON_WS}/src && \
+    git clone -b jazzy https://github.com/ROBOTIS-GIT/robotis_interfaces.git && \
+    git clone -b feature-vuer https://github.com/ROBOTIS-GIT/robotis_applications.git
+
+RUN cd ${COLCON_WS} && \
+    [ -f /etc/ros/rosdep/sources.list.d/20-default.list ] || rosdep init && \
+    rosdep update && \
+    apt-get update && \
+    rosdep install -i --from-paths src --rosdistro $ROS_DISTRO -y && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
+    cd ${COLCON_WS} && \
+    colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release"
+
+RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc && \
+    echo "source ${COLCON_WS}/install/setup.bash" >> /root/.bashrc && \
+    echo "alias cb='colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release'" >> /root/.bashrc && \
+    echo "export ROS_DOMAIN_ID=30" >> /root/.bashrc && \
+    echo "alias vr='ros2 launch robotis_vuer vr.launch.py'" >> /root/.bashrc
+
+EXPOSE 8012
+EXPOSE 8080
+
+CMD ["bash"]
