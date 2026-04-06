@@ -30,7 +30,6 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from scipy.spatial.transform import Rotation as R
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Float32
-from std_srvs.srv import Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from vuer import Vuer
 from vuer.schemas import Body, MotionControllers
@@ -160,21 +159,12 @@ class VRTrajectoryPublisher(Node):
             PoseStamped, '/r_elbow_pose', self.vr_stream_qos
         )
 
-        # Reactivate service client (call when both A buttons are pressed)
-        self.declare_parameter('reactivate_service', '/reactivate')
-        self.reactivate_service = str(self.get_parameter('reactivate_service').value)
-        self.reactivate_client = self.create_client(Trigger, self.reactivate_service)
+        # Reactivate topic publisher (publish True when both A buttons are pressed)
+        self.declare_parameter('reactivate_topic', '/reactivate')
+        self.reactivate_topic = str(self.get_parameter('reactivate_topic').value)
+        self.reactivate_pub = self.create_publisher(Bool, self.reactivate_topic, 10)
         self.both_a_buttons_pressed_prev = False
-        self.reactivate_call_in_flight = False
-        self.last_reactivate_service_warn_sec = 0.0
 
-        # Subscriber for VR control toggle
-        self.vr_control_sub = self.create_subscription(
-            Bool,
-            '/vr_control/toggle',
-            self.vr_control_callback,
-            self.vr_stream_qos
-        )
         self.joint_states_sub = self.create_subscription(
             JointState,
             '/joint_states',
@@ -388,53 +378,18 @@ class VRTrajectoryPublisher(Node):
             f'scale={self.lift_to_arm_z_scale:.3f}'
         )
 
-    def vr_control_callback(self, msg):
-        """Enable/disable VR publishing based on message content."""
-        new_state = bool(msg.data)  # Read message content
-
-        # Only log if state actually changed
-        if new_state != self.vr_publishing_enabled:
-            self.vr_publishing_enabled = new_state
-            status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
-            self.get_logger().info(
-                f'VR publishing changed to: {status} (message value: {msg.data})'
-            )
-
-            if not self.vr_publishing_enabled:
-                self.get_logger().info('VR publishing disabled')
-
     def is_valid_float(self, value):
         """Check if value is valid float (excluding NaN, inf)."""
         return isinstance(value, (int, float)) and np.isfinite(value)
 
-    def _call_reactivate(self):
-        """Call reactivate service without blocking event callbacks."""
-        if self.reactivate_call_in_flight:
-            return
-
-        if not self.reactivate_client.service_is_ready():
-            now_sec = self.get_clock().now().nanoseconds / 1e9
-            if (now_sec - self.last_reactivate_service_warn_sec) >= 5.0:
-                self.get_logger().warn(
-                    f'Reactivate service "{self.reactivate_service}" not available'
-                )
-                self.last_reactivate_service_warn_sec = now_sec
-            return
-
-        self.reactivate_call_in_flight = True
-        req = Trigger.Request()
-        self.reactivate_client.call_async(req).add_done_callback(self._reactivate_done_callback)
-
-    def _reactivate_done_callback(self, future):
-        self.reactivate_call_in_flight = False
-        try:
-            response = future.result()
-            if response.success:
-                self.get_logger().info('Reactivate service called successfully (both A buttons)')
-            else:
-                self.get_logger().warn(f'Reactivate service returned: {response.message}')
-        except Exception as e:
-            self.get_logger().error(f'Reactivate service call failed: {e}')
+    def _publish_reactivate(self):
+        """Publish a True reactivate message without blocking event callbacks."""
+        msg = Bool()
+        msg.data = True
+        self.reactivate_pub.publish(msg)
+        self.get_logger().info(
+            f'Reactivate topic "{self.reactivate_topic}" published with True (both A buttons)'
+        )
 
     def apply_deadzone(self, value):
         """Apply deadzone to thumbstick value."""
@@ -1099,7 +1054,7 @@ class VRTrajectoryPublisher(Node):
             # Process thumbstick for lift/head/cmd_vel control.
             self.process_thumbstick()
 
-            # Call reactivate when both A buttons are pressed (rising edge only)
+            # Publish reactivate when both A buttons are pressed (rising edge only)
             left_a = (
                 bool(self.left_controller_state.get('aButton', False))
                 if isinstance(self.left_controller_state, dict) else False
@@ -1110,7 +1065,7 @@ class VRTrajectoryPublisher(Node):
             )
             both_a_now = left_a and right_a
             if both_a_now and not self.both_a_buttons_pressed_prev:
-                self._call_reactivate()
+                self._publish_reactivate()
             self.both_a_buttons_pressed_prev = both_a_now
 
             left_matrix_raw = data.get('left')
