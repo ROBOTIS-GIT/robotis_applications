@@ -5,10 +5,10 @@ ROS Packages for Robotis Applications
 This repository contains the official ROS 2 packages for the ROBOTIS applications. For detailed usage instructions, please refer to the documentation below.
   - [Documentation for Robotis Applications](https://ai.robotis.com/)
 
-For usage instructions and demonstrations of the ROBOTIS Hand, check out:
+For usage instructions and demonstrations of the ROBOTIS applications, check out:
   - [Tutorial Videos](https://www.youtube.com/@ROBOTISOpenSourceTeam)
 
-To use the Docker image for running ROS packages with the ROBOTIS Hand, visit:
+To use the Docker image for running ROS packages with the ROBOTIS applications, visit:
   - [Docker Images](https://hub.docker.com/r/robotis/robotis-applications/tags)
 
 ## Docker Usage
@@ -47,11 +47,20 @@ Run SH5: (default)
 ```bash
 ros2 launch robotis_vuer vr.launch.py model:=sh5
 ```
+or shortcut:
+```bash
+vr model:=sh5
+```
 
 Run SG2:
 
 ```bash
 ros2 launch robotis_vuer vr.launch.py model:=sg2
+```
+
+or shortcut:
+```bash
+vr model:=sg2
 ```
 
 ## Third-Party Notice
