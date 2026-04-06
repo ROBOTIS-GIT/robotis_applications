@@ -34,6 +34,7 @@ from robotis_interfaces.msg import HandJoints
 from scipy.spatial.transform import Rotation as R
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool
+from std_srvs.srv import Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from vuer import Vuer
 from vuer.schemas import Body, Hands, ImageBackground
@@ -343,12 +344,15 @@ class VRTrajectoryPublisher(Node):
             PoseStamped, '/r_elbow_pose', self.vr_stream_qos
         )
 
-        # Subscriber for VR control toggle
-        self.vr_control_sub = self.create_subscription(
-            Bool,
-            '/vr_control/toggle',
-            self.vr_control_callback,
-            10
+        # Reactivate service
+        self.declare_parameter('reactivate_service', 'reactivate')
+        self.reactivate_service = str(
+            self.get_parameter('reactivate_service').value
+        )
+        self.reactivate_srv = self.create_service(
+            Trigger,
+            self.reactivate_service,
+            self.reactivate_trigger_callback,
         )
         self.odom_sub = self.create_subscription(
             Odometry, '/odom', self.odom_callback, self.vr_stream_qos
@@ -490,70 +494,80 @@ class VRTrajectoryPublisher(Node):
         vr_status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
         self.get_logger().info(
             f'VR publishing is {vr_status} by default. '
-            f'Send /vr_control/toggle message (True=enable, False=disable).'
+            f'Call std_srvs/srv/Trigger /{self.reactivate_service} to toggle '
+            'enable/disable.'
         )
 
     def odom_callback(self, msg):
         """Receive robot odometry for base control."""
         self.current_odom = msg
 
-    def vr_control_callback(self, msg):
-        """Enable/disable VR publishing based on message content."""
-        new_state = bool(msg.data)
+    def reactivate_trigger_callback(self, request, response):
+        """Toggle VR publishing via std_srvs/srv/Trigger"""
+        del request  # Trigger has empty request
+        prev = bool(self.vr_publishing_enabled)
+        new_state = not prev
+        self._set_vr_publishing_enabled(new_state)
+        status = 'ENABLED' if new_state else 'DISABLED'
+        response.success = True
+        response.message = f'VR publishing {status} (was {"ENABLED" if prev else "DISABLED"})'
+        return response
 
-        if new_state != self.vr_publishing_enabled:
-            self.vr_publishing_enabled = new_state
-            status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
-            self.get_logger().info(
-                f'VR publishing changed to: {status} (message value: {msg.data})'
-            )
+    def _set_vr_publishing_enabled(self, new_state):
+        """Apply VR publishing on/off and the same side effects as the old Bool topic."""
+        new_state = bool(new_state)
+        if new_state == bool(self.vr_publishing_enabled):
+            return
 
-            if self.vr_publishing_enabled:
-                self.start_poses_left = False
-                self.start_poses_right = False
-                self.prev_poses_left.fill(0.0)
-                self.prev_poses_right.fill(0.0)
-                self.initial_camera_height = None
-                self.initial_camera_position = None
-                self.initial_camera_yaw = None
-                self.previous_camera_position = None
-                self.previous_camera_yaw = None
-                if self.current_odom is not None:
-                    pos = self.current_odom.pose.pose.position
-                    quat = self.current_odom.pose.pose.orientation
-                    r = R.from_quat([quat.x, quat.y, quat.z, quat.w])
-                    _, _, yaw = r.as_euler('xyz')
-                    self.initial_odom_position = np.array([pos.x, pos.y])
-                    self.initial_odom_yaw = yaw
-                    self.get_logger().info(
-                        f'Initial robot odom position: '
-                        f'[{self.initial_odom_position[0]:.3f}, '
-                        f'{self.initial_odom_position[1]:.3f}], '
-                        f'yaw: {self.initial_odom_yaw:.3f} rad'
-                    )
-                else:
-                    self.initial_odom_position = None
-                    self.initial_odom_yaw = None
-                    self.get_logger().warn('VR control enabled but odom not available yet')
+        self.vr_publishing_enabled = new_state
+        status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
+        self.get_logger().info(f'VR publishing changed to: {status}')
 
-            if not self.vr_publishing_enabled:
-                self.left_joint_positions = [0.0] * 20
-                self.right_joint_positions = [0.0] * 20
-                self.start_poses_left = False
-                self.start_poses_right = False
-                self.prev_poses_left.fill(0.0)
-                self.prev_poses_right.fill(0.0)
+        if self.vr_publishing_enabled:
+            self.start_poses_left = False
+            self.start_poses_right = False
+            self.prev_poses_left.fill(0.0)
+            self.prev_poses_right.fill(0.0)
+            self.initial_camera_height = None
+            self.initial_camera_position = None
+            self.initial_camera_yaw = None
+            self.previous_camera_position = None
+            self.previous_camera_yaw = None
+            if self.current_odom is not None:
+                pos = self.current_odom.pose.pose.position
+                quat = self.current_odom.pose.pose.orientation
+                r = R.from_quat([quat.x, quat.y, quat.z, quat.w])
+                _, _, yaw = r.as_euler('xyz')
+                self.initial_odom_position = np.array([pos.x, pos.y])
+                self.initial_odom_yaw = yaw
+                self.get_logger().info(
+                    f'Initial robot odom position: '
+                    f'[{self.initial_odom_position[0]:.3f}, '
+                    f'{self.initial_odom_position[1]:.3f}], '
+                    f'yaw: {self.initial_odom_yaw:.3f} rad'
+                )
+            else:
                 self.initial_odom_position = None
                 self.initial_odom_yaw = None
-                self.initial_camera_height = None
-                self.initial_camera_position = None
-                self.initial_camera_yaw = None
-                self.filtered_lift_position = None
-                self.last_lift_time = None
-                self.z_calibrated = False
-                self.head_height_offset_for_arms = 0.0
-                self.pose_filters.clear()
-                self.get_logger().info('Joint positions reset to zero')
+                self.get_logger().warn('VR control enabled but odom not available yet')
+        else:
+            self.left_joint_positions = [0.0] * 20
+            self.right_joint_positions = [0.0] * 20
+            self.start_poses_left = False
+            self.start_poses_right = False
+            self.prev_poses_left.fill(0.0)
+            self.prev_poses_right.fill(0.0)
+            self.initial_odom_position = None
+            self.initial_odom_yaw = None
+            self.initial_camera_height = None
+            self.initial_camera_position = None
+            self.initial_camera_yaw = None
+            self.filtered_lift_position = None
+            self.last_lift_time = None
+            self.z_calibrated = False
+            self.head_height_offset_for_arms = 0.0
+            self.pose_filters.clear()
+            self.get_logger().info('Joint positions reset to zero')
 
     def log_status(self):
         """Log current system status for debugging."""
