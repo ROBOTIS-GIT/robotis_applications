@@ -53,3 +53,7 @@ Run SG2:
 ```bash
 ros2 launch robotis_vuer vr.launch.py model:=sg2
 ```
+
+## Third-Party Notice
+
+This project uses [`vuer`](https://github.com/vuer-ai/vuer), which is licensed under the MIT License.
