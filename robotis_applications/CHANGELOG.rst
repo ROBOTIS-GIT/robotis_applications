@@ -5,7 +5,7 @@ Changelog for package robotis_applications
 0.0.2 (2026-04-06)
 ------------------
 * Add third-party notice to README
-* Add contributing.md file
+* Add CONTRIBUTING.md file
 * Contributors: Wonho Yun
 
 0.0.1 (2026-03-10)
