@@ -70,6 +70,8 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('right_trigger_offset', 0.0)
         self.declare_parameter('left_trigger_scale', 1.0)
         self.declare_parameter('right_trigger_scale', 1.0)
+        self.declare_parameter('left_gripper_max_position', 1.3)
+        self.declare_parameter('right_gripper_max_position', 1.3)
         self.declare_parameter('goal_pose_position_scale', 1.1)
         self.declare_parameter('stream_fps', 30)
         self.declare_parameter('pose_publish_hz', 30.0)
@@ -135,11 +137,15 @@ class VRTrajectoryPublisher(Node):
         self.right_squeeze_pub = self.create_publisher(
             Float32, '/vr_controller/right_squeeze', self.vr_stream_qos
         )
-        self.left_trigger_pub = self.create_publisher(
-            Float32, '/vr_controller/left_trigger', self.vr_stream_qos
+        self.left_gripper_pub = self.create_publisher(
+            JointTrajectory,
+            '/leader/joint_trajectory_command_broadcaster_left/joint_trajectory',
+            self.vr_stream_qos
         )
-        self.right_trigger_pub = self.create_publisher(
-            Float32, '/vr_controller/right_trigger', self.vr_stream_qos
+        self.right_gripper_pub = self.create_publisher(
+            JointTrajectory,
+            '/leader/joint_trajectory_command_broadcaster_right/joint_trajectory',
+            self.vr_stream_qos
         )
         self.cmd_vel_pub = self.create_publisher(
             Twist, '/cmd_vel', self.vr_stream_qos
@@ -269,6 +275,12 @@ class VRTrajectoryPublisher(Node):
             'left': float(self.get_parameter('left_trigger_scale').value),
             'right': float(self.get_parameter('right_trigger_scale').value),
         }
+        self.left_gripper_max_position = float(
+            self.get_parameter('left_gripper_max_position').value
+        )
+        self.right_gripper_max_position = float(
+            self.get_parameter('right_gripper_max_position').value
+        )
         self.goal_pose_position_scale = float(self.get_parameter('goal_pose_position_scale').value)
         if not np.isfinite(self.goal_pose_position_scale) or self.goal_pose_position_scale <= 0.0:
             self.get_logger().warn(
@@ -1028,9 +1040,18 @@ class VRTrajectoryPublisher(Node):
                 trigger_val = left_state.get('triggerValue')
                 if self.is_valid_float(trigger_val):
                     calibrated_trigger = self.calibrate_trigger('left', trigger_val)
-                    left_trigger_msg = Float32()
-                    left_trigger_msg.data = calibrated_trigger
-                    self.left_trigger_pub.publish(left_trigger_msg)
+                    left_gripper_msg = JointTrajectory()
+                    left_gripper_msg.joint_names = ['gripper_l_joint1']
+
+                    point = JointTrajectoryPoint()
+                    point.positions = [
+                        calibrated_trigger * self.left_gripper_max_position
+                    ]
+                    point.time_from_start.sec = 0
+                    point.time_from_start.nanosec = 0
+                    left_gripper_msg.points.append(point)
+
+                    self.left_gripper_pub.publish(left_gripper_msg)
             else:
                 self.left_squeeze_value = 0.0
 
@@ -1049,9 +1070,18 @@ class VRTrajectoryPublisher(Node):
                 trigger_val = right_state.get('triggerValue')
                 if self.is_valid_float(trigger_val):
                     calibrated_trigger = self.calibrate_trigger('right', trigger_val)
-                    right_trigger_msg = Float32()
-                    right_trigger_msg.data = calibrated_trigger
-                    self.right_trigger_pub.publish(right_trigger_msg)
+                    right_gripper_msg = JointTrajectory()
+                    right_gripper_msg.joint_names = ['gripper_r_joint1']
+
+                    point = JointTrajectoryPoint()
+                    point.positions = [
+                        calibrated_trigger * self.right_gripper_max_position
+                    ]
+                    point.time_from_start.sec = 0
+                    point.time_from_start.nanosec = 0
+                    right_gripper_msg.points.append(point)
+
+                    self.right_gripper_pub.publish(right_gripper_msg)
             else:
                 self.right_squeeze_value = 0.0
 
