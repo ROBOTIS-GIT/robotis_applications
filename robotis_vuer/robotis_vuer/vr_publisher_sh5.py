@@ -136,9 +136,9 @@ class VRTrajectoryPublisher(Node):
         self.get_logger().set_level(rclpy.logging.LoggingSeverity.INFO)
 
         # Lift and base (whole-body) parameters
-        self.declare_parameter('enable_lift_publishing', True)
+        self.declare_parameter('enable_lift_publishing', False)
         self.declare_parameter('enable_head_publishing', False)
-        self.declare_parameter('enable_base_publishing', True)
+        self.declare_parameter('enable_base_publishing', False)
         self.declare_parameter('enable_vr_image', False)
 
         self.declare_parameter('base_linear_kp', 1.7)
