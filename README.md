@@ -2,8 +2,7 @@
 
 ROS Packages for Robotis Applications
 
-This repository contains the official ROS 2 packages for the ROBOTIS applications. For detailed usage instructions, please refer to the documentation below.
-  - [Documentation for Robotis Applications](https://ai.robotis.com/)
+This repository contains the official ROS 2 packages for the ROBOTIS applications.
 
 For usage instructions and demonstrations of the ROBOTIS applications, check out:
   - [Tutorial Videos](https://www.youtube.com/@ROBOTISOpenSourceTeam)
