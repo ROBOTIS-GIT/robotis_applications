@@ -6,7 +6,10 @@ Changelog for package robotis_applications
 ------------------
 * Add third-party notice to README
 * Add CONTRIBUTING.md file
-* Contributors: Wonho Yun
+* Add topic-based VR reactivation handling for SH5 and SG2
+* Add A/B button and squeeze-based `/reactivate` Bool publishing
+* Add raw gripper joint trajectory publishers for SG2 triggers
+* Contributors: Wonho Yun, Hyunwoo Nam
 
 0.0.1 (2026-03-10)
 ------------------
