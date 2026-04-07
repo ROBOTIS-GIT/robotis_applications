@@ -83,6 +83,7 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('right_elbow_offset_x', 0.0)
         self.declare_parameter('right_elbow_offset_y', 0.0)
         self.declare_parameter('right_elbow_offset_z', 0.0)
+        self.declare_parameter('goal_pose_squeeze_threshold', 0.8)
 
         # VR publishing control flag
         self.vr_publishing_enabled = True  # Default: disabled
@@ -171,6 +172,7 @@ class VRTrajectoryPublisher(Node):
         self.reactivate_pub = self.create_publisher(Bool, self.reactivate_topic, 10)
         self.both_a_buttons_pressed_prev = False
         self.both_b_buttons_pressed_prev = False
+        self.last_reactivate_state = None
 
         self.joint_states_sub = self.create_subscription(
             JointState,
@@ -186,7 +188,7 @@ class VRTrajectoryPublisher(Node):
         self.right_controller_state = {}
         self.left_squeeze_value = 0.0
         self.right_squeeze_value = 0.0
-        self.goal_pose_squeeze_threshold = 0.8
+        self.goal_pose_squeeze_threshold = float(self.get_parameter('goal_pose_squeeze_threshold').value)
         self.head_transform_matrix = np.eye(4)
         self.head_inverse_matrix = np.eye(4)
         self.vr_head_to_ros_rot = R.from_matrix(VR_HEAD_TO_ROS)
@@ -395,16 +397,25 @@ class VRTrajectoryPublisher(Node):
         """Check if value is valid float (excluding NaN, inf)."""
         return isinstance(value, (int, float)) and np.isfinite(value)
 
-    def _publish_reactivate(self, enabled):
+    def _publish_reactivate(self, enabled, reason=None, force_log=False):
         """Publish reactivate Bool message without blocking event callbacks."""
         msg = Bool()
         msg.data = bool(enabled)
         self.reactivate_pub.publish(msg)
-        state_text = 'True' if msg.data else 'False'
-        button_text = 'A' if msg.data else 'B'
-        self.get_logger().info(
-            f'Reactivate topic "{self.reactivate_topic}" published with '
-            f'{state_text} (both {button_text} buttons)'
+        if force_log or self.last_reactivate_state != msg.data:
+            state_text = 'True' if msg.data else 'False'
+            reason_text = f' ({reason})' if reason else ''
+            self.get_logger().info(
+                f'Reactivate topic "{self.reactivate_topic}" published with '
+                f'{state_text}{reason_text}'
+            )
+        self.last_reactivate_state = msg.data
+
+    def _both_squeezes_active(self):
+        """Return True while both squeeze inputs stay above threshold."""
+        return (
+            self.left_squeeze_value >= self.goal_pose_squeeze_threshold
+            and self.right_squeeze_value >= self.goal_pose_squeeze_threshold
         )
 
     def apply_deadzone(self, value):
@@ -1100,7 +1111,7 @@ class VRTrajectoryPublisher(Node):
             )
             both_a_now = left_a and right_a
             if both_a_now and not self.both_a_buttons_pressed_prev:
-                self._publish_reactivate(True)
+                self._publish_reactivate(True, reason='both A buttons', force_log=True)
             self.both_a_buttons_pressed_prev = both_a_now
 
             left_b = (
@@ -1113,8 +1124,11 @@ class VRTrajectoryPublisher(Node):
             )
             both_b_now = left_b and right_b
             if both_b_now and not self.both_b_buttons_pressed_prev:
-                self._publish_reactivate(False)
+                self._publish_reactivate(False, reason='both B buttons', force_log=True)
             self.both_b_buttons_pressed_prev = both_b_now
+
+            if not self._both_squeezes_active():
+                self._publish_reactivate(False, reason='squeeze released')
 
             left_matrix_raw = data.get('left')
             if isinstance(left_matrix_raw, (list, np.ndarray)) and len(left_matrix_raw) == 16:
