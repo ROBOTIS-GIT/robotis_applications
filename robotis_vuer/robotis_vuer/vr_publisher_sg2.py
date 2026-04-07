@@ -188,7 +188,9 @@ class VRTrajectoryPublisher(Node):
         self.right_controller_state = {}
         self.left_squeeze_value = 0.0
         self.right_squeeze_value = 0.0
-        self.goal_pose_squeeze_threshold = float(self.get_parameter('goal_pose_squeeze_threshold').value)
+        self.goal_pose_squeeze_threshold = float(
+            self.get_parameter('goal_pose_squeeze_threshold').value
+        )
         self.head_transform_matrix = np.eye(4)
         self.head_inverse_matrix = np.eye(4)
         self.vr_head_to_ros_rot = R.from_matrix(VR_HEAD_TO_ROS)
