@@ -32,7 +32,7 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Float32
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from vuer import Vuer
-from vuer.schemas import Body, MotionControllers
+from vuer.schemas import Body, MotionControllers, Scene
 
 # Allow nested asyncio execution
 nest_asyncio.apply()
@@ -947,16 +947,7 @@ class VRTrajectoryPublisher(Node):
         try:
             fps = self.fps
             self.get_logger().info('Starting controller/body tracking session')
-            session.upsert(
-                MotionControllers(
-                    stream=True,
-                    key='motion-controller',
-                    left=True,
-                    right=True,
-                ),
-                to='bgChildren',
-            )
-            session.upsert(
+            session.set @ Scene(
                 Body(
                     fps=fps,
                     stream=True,
@@ -968,7 +959,14 @@ class VRTrajectoryPublisher(Node):
                     showBody=True,
                     frameScale=0.02,
                 ),
-                to='children',
+                bgChildren=[
+                    MotionControllers(
+                        stream=True,
+                        key='motion-controller',
+                        left=True,
+                        right=True,
+                    ),
+                ],
             )
             self.get_logger().info('Controller and body tracking enabled')
             while True:

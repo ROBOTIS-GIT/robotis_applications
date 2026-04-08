@@ -36,7 +36,7 @@ from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from vuer import Vuer
-from vuer.schemas import Body, Hands, ImageBackground
+from vuer.schemas import Body, Hands, HemisphereLightStage, ImageBackground, Scene
 
 # Allow nested asyncio execution
 nest_asyncio.apply()
@@ -1058,43 +1058,18 @@ class VRTrajectoryPublisher(Node):
             self.current_session = session
             self.get_logger().info('Starting hand tracking session')
 
-            # Build bgChildren: optional stereo ImageBackgrounds + Hands
-            bg_children = []
-            if self.enable_vr_image:
-                bg_children.extend([
-                    ImageBackground(
-                        src='',
-                        key='bg_left',
-                        layers=1,
-                        distanceToCamera=2.0,
-                        aspect=1.77,
-                        height=2.5,
-                        position=[0, 0, -2.0],
-                        format='jpeg',
-                    ),
-                    ImageBackground(
-                        src='',
-                        key='bg_right',
-                        layers=2,
-                        distanceToCamera=2.0,
-                        aspect=1.77,
-                        height=2.5,
-                        position=[0, 0, -2.0],
-                        format='jpeg',
-                    ),
-                ])
-            bg_children.append(
+            bg_children = [
+                HemisphereLightStage(key='light-stage', hide=False),
                 Hands(
                     fps=fps,
                     stream=True,
                     key='hands',
                     hideLeft=False,
                     hideRight=False,
-                )
-            )
-            session.upsert(bg_children, to='bgChildren')
+                ),
+            ]
 
-            session.upsert(
+            session.set @ Scene(
                 Body(
                     key='body_tracking',
                     stream=True,
@@ -1106,7 +1081,7 @@ class VRTrajectoryPublisher(Node):
                     showBody=True,
                     frameScale=0.02,
                 ),
-                to='children',
+                bgChildren=bg_children,
             )
             self.get_logger().info(
                 f'Hand tracking enabled{" + VR image" if self.enable_vr_image else ""}'
