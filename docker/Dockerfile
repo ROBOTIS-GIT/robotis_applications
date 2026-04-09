@@ -32,7 +32,7 @@ COPY gen_cert.sh /root/gen_cert.sh
 RUN chmod +x /root/gen_cert.sh
 
 RUN cd /root && \
-    git clone -b v0.1.5 https://github.com/ROBOTIS-GIT/vuer.git && \
+    git clone -b v0.1.6 https://github.com/ROBOTIS-GIT/vuer.git && \
     pip3 install --no-cache-dir -e '/root/vuer[all]'
 
 RUN python3 -c "from vuer import Vuer"
@@ -43,7 +43,7 @@ WORKDIR ${COLCON_WS}
 RUN mkdir -p ${COLCON_WS}/src && \
     cd ${COLCON_WS}/src && \
     git clone -b jazzy https://github.com/ROBOTIS-GIT/robotis_interfaces.git && \
-    git clone -b feature-vuer https://github.com/ROBOTIS-GIT/robotis_applications.git
+    git clone -b feature-license https://github.com/ROBOTIS-GIT/robotis_applications.git
 
 RUN cd ${COLCON_WS} && \
     [ -f /etc/ros/rosdep/sources.list.d/20-default.list ] || rosdep init && \

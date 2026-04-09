@@ -30,10 +30,9 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from scipy.spatial.transform import Rotation as R
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Float32
-from std_srvs.srv import Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from vuer import Vuer
-from vuer.schemas import Body, MotionControllers
+from vuer.schemas import Body, MotionControllers, Scene
 
 # Allow nested asyncio execution
 nest_asyncio.apply()
@@ -71,6 +70,8 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('right_trigger_offset', 0.0)
         self.declare_parameter('left_trigger_scale', 1.0)
         self.declare_parameter('right_trigger_scale', 1.0)
+        self.declare_parameter('left_gripper_max_position', 1.3)
+        self.declare_parameter('right_gripper_max_position', 1.3)
         self.declare_parameter('goal_pose_position_scale', 1.1)
         self.declare_parameter('stream_fps', 30)
         self.declare_parameter('pose_publish_hz', 30.0)
@@ -82,6 +83,7 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('right_elbow_offset_x', 0.0)
         self.declare_parameter('right_elbow_offset_y', 0.0)
         self.declare_parameter('right_elbow_offset_z', 0.0)
+        self.declare_parameter('goal_pose_squeeze_threshold', 0.8)
 
         # VR publishing control flag
         self.vr_publishing_enabled = True  # Default: disabled
@@ -136,11 +138,15 @@ class VRTrajectoryPublisher(Node):
         self.right_squeeze_pub = self.create_publisher(
             Float32, '/vr_controller/right_squeeze', self.vr_stream_qos
         )
-        self.left_trigger_pub = self.create_publisher(
-            Float32, '/vr_controller/left_trigger', self.vr_stream_qos
+        self.left_gripper_pub = self.create_publisher(
+            JointTrajectory,
+            '/leader/joint_trajectory_command_broadcaster_left/joint_trajectory',
+            self.vr_stream_qos
         )
-        self.right_trigger_pub = self.create_publisher(
-            Float32, '/vr_controller/right_trigger', self.vr_stream_qos
+        self.right_gripper_pub = self.create_publisher(
+            JointTrajectory,
+            '/leader/joint_trajectory_command_broadcaster_right/joint_trajectory',
+            self.vr_stream_qos
         )
         self.cmd_vel_pub = self.create_publisher(
             Twist, '/cmd_vel', self.vr_stream_qos
@@ -160,21 +166,14 @@ class VRTrajectoryPublisher(Node):
             PoseStamped, '/r_elbow_pose', self.vr_stream_qos
         )
 
-        # Reactivate service client (call when both A buttons are pressed)
-        self.declare_parameter('reactivate_service', '/reactivate')
-        self.reactivate_service = str(self.get_parameter('reactivate_service').value)
-        self.reactivate_client = self.create_client(Trigger, self.reactivate_service)
+        # Reactivate topic publisher
+        self.declare_parameter('reactivate_topic', '/reactivate')
+        self.reactivate_topic = str(self.get_parameter('reactivate_topic').value)
+        self.reactivate_pub = self.create_publisher(Bool, self.reactivate_topic, 10)
         self.both_a_buttons_pressed_prev = False
-        self.reactivate_call_in_flight = False
-        self.last_reactivate_service_warn_sec = 0.0
+        self.both_b_buttons_pressed_prev = False
+        self.last_reactivate_state = None
 
-        # Subscriber for VR control toggle
-        self.vr_control_sub = self.create_subscription(
-            Bool,
-            '/vr_control/toggle',
-            self.vr_control_callback,
-            self.vr_stream_qos
-        )
         self.joint_states_sub = self.create_subscription(
             JointState,
             '/joint_states',
@@ -189,7 +188,9 @@ class VRTrajectoryPublisher(Node):
         self.right_controller_state = {}
         self.left_squeeze_value = 0.0
         self.right_squeeze_value = 0.0
-        self.goal_pose_squeeze_threshold = 0.8
+        self.goal_pose_squeeze_threshold = float(
+            self.get_parameter('goal_pose_squeeze_threshold').value
+        )
         self.head_transform_matrix = np.eye(4)
         self.head_inverse_matrix = np.eye(4)
         self.vr_head_to_ros_rot = R.from_matrix(VR_HEAD_TO_ROS)
@@ -278,6 +279,12 @@ class VRTrajectoryPublisher(Node):
             'left': float(self.get_parameter('left_trigger_scale').value),
             'right': float(self.get_parameter('right_trigger_scale').value),
         }
+        self.left_gripper_max_position = float(
+            self.get_parameter('left_gripper_max_position').value
+        )
+        self.right_gripper_max_position = float(
+            self.get_parameter('right_gripper_max_position').value
+        )
         self.goal_pose_position_scale = float(self.get_parameter('goal_pose_position_scale').value)
         if not np.isfinite(self.goal_pose_position_scale) or self.goal_pose_position_scale <= 0.0:
             self.get_logger().warn(
@@ -388,53 +395,30 @@ class VRTrajectoryPublisher(Node):
             f'scale={self.lift_to_arm_z_scale:.3f}'
         )
 
-    def vr_control_callback(self, msg):
-        """Enable/disable VR publishing based on message content."""
-        new_state = bool(msg.data)  # Read message content
-
-        # Only log if state actually changed
-        if new_state != self.vr_publishing_enabled:
-            self.vr_publishing_enabled = new_state
-            status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
-            self.get_logger().info(
-                f'VR publishing changed to: {status} (message value: {msg.data})'
-            )
-
-            if not self.vr_publishing_enabled:
-                self.get_logger().info('VR publishing disabled')
-
     def is_valid_float(self, value):
         """Check if value is valid float (excluding NaN, inf)."""
         return isinstance(value, (int, float)) and np.isfinite(value)
 
-    def _call_reactivate(self):
-        """Call reactivate service without blocking event callbacks."""
-        if self.reactivate_call_in_flight:
-            return
+    def _publish_reactivate(self, enabled, reason=None, force_log=False):
+        """Publish reactivate Bool message without blocking event callbacks."""
+        msg = Bool()
+        msg.data = bool(enabled)
+        self.reactivate_pub.publish(msg)
+        if force_log or self.last_reactivate_state != msg.data:
+            state_text = 'True' if msg.data else 'False'
+            reason_text = f' ({reason})' if reason else ''
+            self.get_logger().info(
+                f'Reactivate topic "{self.reactivate_topic}" published with '
+                f'{state_text}{reason_text}'
+            )
+        self.last_reactivate_state = msg.data
 
-        if not self.reactivate_client.service_is_ready():
-            now_sec = self.get_clock().now().nanoseconds / 1e9
-            if (now_sec - self.last_reactivate_service_warn_sec) >= 5.0:
-                self.get_logger().warn(
-                    f'Reactivate service "{self.reactivate_service}" not available'
-                )
-                self.last_reactivate_service_warn_sec = now_sec
-            return
-
-        self.reactivate_call_in_flight = True
-        req = Trigger.Request()
-        self.reactivate_client.call_async(req).add_done_callback(self._reactivate_done_callback)
-
-    def _reactivate_done_callback(self, future):
-        self.reactivate_call_in_flight = False
-        try:
-            response = future.result()
-            if response.success:
-                self.get_logger().info('Reactivate service called successfully (both A buttons)')
-            else:
-                self.get_logger().warn(f'Reactivate service returned: {response.message}')
-        except Exception as e:
-            self.get_logger().error(f'Reactivate service call failed: {e}')
+    def _both_squeezes_active(self):
+        """Return True while both squeeze inputs stay above threshold."""
+        return (
+            self.left_squeeze_value >= self.goal_pose_squeeze_threshold
+            and self.right_squeeze_value >= self.goal_pose_squeeze_threshold
+        )
 
     def apply_deadzone(self, value):
         """Apply deadzone to thumbstick value."""
@@ -963,16 +947,7 @@ class VRTrajectoryPublisher(Node):
         try:
             fps = self.fps
             self.get_logger().info('Starting controller/body tracking session')
-            session.upsert(
-                MotionControllers(
-                    stream=True,
-                    key='motion-controller',
-                    left=True,
-                    right=True,
-                ),
-                to='bgChildren',
-            )
-            session.upsert(
+            session.set @ Scene(
                 Body(
                     fps=fps,
                     stream=True,
@@ -984,7 +959,14 @@ class VRTrajectoryPublisher(Node):
                     showBody=True,
                     frameScale=0.02,
                 ),
-                to='children',
+                bgChildren=[
+                    MotionControllers(
+                        stream=True,
+                        key='motion-controller',
+                        left=True,
+                        right=True,
+                    ),
+                ],
             )
             self.get_logger().info('Controller and body tracking enabled')
             while True:
@@ -1069,9 +1051,18 @@ class VRTrajectoryPublisher(Node):
                 trigger_val = left_state.get('triggerValue')
                 if self.is_valid_float(trigger_val):
                     calibrated_trigger = self.calibrate_trigger('left', trigger_val)
-                    left_trigger_msg = Float32()
-                    left_trigger_msg.data = calibrated_trigger
-                    self.left_trigger_pub.publish(left_trigger_msg)
+                    left_gripper_msg = JointTrajectory()
+                    left_gripper_msg.joint_names = ['gripper_l_joint1']
+
+                    point = JointTrajectoryPoint()
+                    point.positions = [
+                        calibrated_trigger * self.left_gripper_max_position
+                    ]
+                    point.time_from_start.sec = 0
+                    point.time_from_start.nanosec = 0
+                    left_gripper_msg.points.append(point)
+
+                    self.left_gripper_pub.publish(left_gripper_msg)
             else:
                 self.left_squeeze_value = 0.0
 
@@ -1090,16 +1081,26 @@ class VRTrajectoryPublisher(Node):
                 trigger_val = right_state.get('triggerValue')
                 if self.is_valid_float(trigger_val):
                     calibrated_trigger = self.calibrate_trigger('right', trigger_val)
-                    right_trigger_msg = Float32()
-                    right_trigger_msg.data = calibrated_trigger
-                    self.right_trigger_pub.publish(right_trigger_msg)
+                    right_gripper_msg = JointTrajectory()
+                    right_gripper_msg.joint_names = ['gripper_r_joint1']
+
+                    point = JointTrajectoryPoint()
+                    point.positions = [
+                        calibrated_trigger * self.right_gripper_max_position
+                    ]
+                    point.time_from_start.sec = 0
+                    point.time_from_start.nanosec = 0
+                    right_gripper_msg.points.append(point)
+
+                    self.right_gripper_pub.publish(right_gripper_msg)
             else:
                 self.right_squeeze_value = 0.0
 
             # Process thumbstick for lift/head/cmd_vel control.
             self.process_thumbstick()
 
-            # Call reactivate when both A buttons are pressed (rising edge only)
+            # Publish reactivate when both A or both B buttons are pressed
+            # (rising edge only).
             left_a = (
                 bool(self.left_controller_state.get('aButton', False))
                 if isinstance(self.left_controller_state, dict) else False
@@ -1110,8 +1111,24 @@ class VRTrajectoryPublisher(Node):
             )
             both_a_now = left_a and right_a
             if both_a_now and not self.both_a_buttons_pressed_prev:
-                self._call_reactivate()
+                self._publish_reactivate(True, reason='both A buttons', force_log=True)
             self.both_a_buttons_pressed_prev = both_a_now
+
+            left_b = (
+                bool(self.left_controller_state.get('bButton', False))
+                if isinstance(self.left_controller_state, dict) else False
+            )
+            right_b = (
+                bool(self.right_controller_state.get('bButton', False))
+                if isinstance(self.right_controller_state, dict) else False
+            )
+            both_b_now = left_b and right_b
+            if both_b_now and not self.both_b_buttons_pressed_prev:
+                self._publish_reactivate(False, reason='both B buttons', force_log=True)
+            self.both_b_buttons_pressed_prev = both_b_now
+
+            if not self._both_squeezes_active():
+                self._publish_reactivate(False, reason='squeeze released')
 
             left_matrix_raw = data.get('left')
             if isinstance(left_matrix_raw, (list, np.ndarray)) and len(left_matrix_raw) == 16:

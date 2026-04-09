@@ -34,10 +34,9 @@ from robotis_interfaces.msg import HandJoints
 from scipy.spatial.transform import Rotation as R
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool
-from std_srvs.srv import Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from vuer import Vuer
-from vuer.schemas import Body, Hands, ImageBackground
+from vuer.schemas import Body, Hands, HemisphereLightStage, ImageBackground, Scene
 
 # Allow nested asyncio execution
 nest_asyncio.apply()
@@ -137,9 +136,9 @@ class VRTrajectoryPublisher(Node):
         self.get_logger().set_level(rclpy.logging.LoggingSeverity.INFO)
 
         # Lift and base (whole-body) parameters
-        self.declare_parameter('enable_lift_publishing', True)
+        self.declare_parameter('enable_lift_publishing', False)
         self.declare_parameter('enable_head_publishing', False)
-        self.declare_parameter('enable_base_publishing', True)
+        self.declare_parameter('enable_base_publishing', False)
         self.declare_parameter('enable_vr_image', False)
 
         self.declare_parameter('base_linear_kp', 1.7)
@@ -344,15 +343,12 @@ class VRTrajectoryPublisher(Node):
             PoseStamped, '/r_elbow_pose', self.vr_stream_qos
         )
 
-        # Reactivate service
-        self.declare_parameter('reactivate_service', 'reactivate')
-        self.reactivate_service = str(
-            self.get_parameter('reactivate_service').value
-        )
-        self.reactivate_srv = self.create_service(
-            Trigger,
-            self.reactivate_service,
-            self.reactivate_trigger_callback,
+        # Reactivate topic
+        self.reactivate_sub = self.create_subscription(
+            Bool,
+            '/reactivate',
+            self.reactivate_callback,
+            10
         )
         self.odom_sub = self.create_subscription(
             Odometry, '/odom', self.odom_callback, self.vr_stream_qos
@@ -481,7 +477,7 @@ class VRTrajectoryPublisher(Node):
         self.wrist_debug_log_counter = 0
         self.wrist_debug_log_every_n = 30
 
-        self.status_timer = self.create_timer(5.0, self.log_status)
+        self.status_timer = self.create_timer(3.0, self.log_status)
         self.head_log_counter = 0
         self.log_every_n = self.fps
 
@@ -494,34 +490,24 @@ class VRTrajectoryPublisher(Node):
         vr_status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
         self.get_logger().info(
             f'VR publishing is {vr_status} by default. '
-            f'Call std_srvs/srv/Trigger /{self.reactivate_service} to toggle '
-            'enable/disable.'
+            'Publish std_msgs/Bool on /reactivate to set enable/disable.'
         )
 
     def odom_callback(self, msg):
         """Receive robot odometry for base control."""
         self.current_odom = msg
 
-    def reactivate_trigger_callback(self, request, response):
-        """Toggle VR publishing via std_srvs/srv/Trigger."""
-        del request  # Trigger has empty request
-        prev = bool(self.vr_publishing_enabled)
-        new_state = not prev
+    def reactivate_callback(self, msg):
+        """Set VR publishing from /reactivate Bool message."""
+        new_state = bool(msg.data)
         self._set_vr_publishing_enabled(new_state)
-        status = 'ENABLED' if new_state else 'DISABLED'
-        response.success = True
-        response.message = f'VR publishing {status} (was {"ENABLED" if prev else "DISABLED"})'
-        return response
 
     def _set_vr_publishing_enabled(self, new_state):
         """Apply VR publishing on/off and the same side effects as the old Bool topic."""
         new_state = bool(new_state)
-        if new_state == bool(self.vr_publishing_enabled):
-            return
-
         self.vr_publishing_enabled = new_state
-        status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
-        self.get_logger().info(f'VR publishing changed to: {status}')
+        # status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
+        # self.get_logger().info(f'VR publishing set to: {status}')
 
         if self.vr_publishing_enabled:
             self.start_poses_left = False
@@ -549,7 +535,7 @@ class VRTrajectoryPublisher(Node):
             else:
                 self.initial_odom_position = None
                 self.initial_odom_yaw = None
-                self.get_logger().warn('VR control enabled but odom not available yet')
+                # self.get_logger().warn('VR control enabled but odom not available yet')
         else:
             self.left_joint_positions = [0.0] * 20
             self.right_joint_positions = [0.0] * 20
@@ -567,7 +553,7 @@ class VRTrajectoryPublisher(Node):
             self.z_calibrated = False
             self.head_height_offset_for_arms = 0.0
             self.pose_filters.clear()
-            self.get_logger().info('Joint positions reset to zero')
+            # self.get_logger().info('Joint positions reset to zero')
 
     def log_status(self):
         """Log current system status for debugging."""
@@ -1072,43 +1058,18 @@ class VRTrajectoryPublisher(Node):
             self.current_session = session
             self.get_logger().info('Starting hand tracking session')
 
-            # Build bgChildren: optional stereo ImageBackgrounds + Hands
-            bg_children = []
-            if self.enable_vr_image:
-                bg_children.extend([
-                    ImageBackground(
-                        src='',
-                        key='bg_left',
-                        layers=1,
-                        distanceToCamera=2.0,
-                        aspect=1.77,
-                        height=2.5,
-                        position=[0, 0, -2.0],
-                        format='jpeg',
-                    ),
-                    ImageBackground(
-                        src='',
-                        key='bg_right',
-                        layers=2,
-                        distanceToCamera=2.0,
-                        aspect=1.77,
-                        height=2.5,
-                        position=[0, 0, -2.0],
-                        format='jpeg',
-                    ),
-                ])
-            bg_children.append(
+            bg_children = [
+                HemisphereLightStage(key='light-stage', hide=False),
                 Hands(
                     fps=fps,
                     stream=True,
                     key='hands',
                     hideLeft=False,
                     hideRight=False,
-                )
-            )
-            session.upsert(bg_children, to='bgChildren')
+                ),
+            ]
 
-            session.upsert(
+            session.set @ Scene(
                 Body(
                     key='body_tracking',
                     stream=True,
@@ -1120,7 +1081,7 @@ class VRTrajectoryPublisher(Node):
                     showBody=True,
                     frameScale=0.02,
                 ),
-                to='children',
+                bgChildren=bg_children,
             )
             self.get_logger().info(
                 f'Hand tracking enabled{" + VR image" if self.enable_vr_image else ""}'

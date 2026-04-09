@@ -83,7 +83,7 @@ build_container() {
 start_container() {
     setup_x11
     echo "Starting robotis-applications container (TARGET_ARCH=${TARGET_ARCH})..."
-    compose_cmd up -d --build
+    compose_cmd up -d "$@"
     ensure_certificates
 }
 
