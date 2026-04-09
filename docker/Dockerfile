@@ -43,7 +43,7 @@ WORKDIR ${COLCON_WS}
 RUN mkdir -p ${COLCON_WS}/src && \
     cd ${COLCON_WS}/src && \
     git clone -b jazzy https://github.com/ROBOTIS-GIT/robotis_interfaces.git && \
-    git clone -b feature-license https://github.com/ROBOTIS-GIT/robotis_applications.git
+    git clone -b jazzy https://github.com/ROBOTIS-GIT/robotis_applications.git
 
 RUN cd ${COLCON_WS} && \
     [ -f /etc/ros/rosdep/sources.list.d/20-default.list ] || rosdep init && \
