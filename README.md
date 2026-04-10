@@ -62,6 +62,17 @@ or shortcut:
 vr model:=sg2
 ```
 
+Run HX5:
+
+```bash
+ros2 launch robotis_vuer vr.launch.py model:=hx5
+```
+
+or shortcut:
+```bash
+vr model:=hx5
+```
+
 ## Third-Party Notice
 
 This project uses [`vuer`](https://github.com/vuer-ai/vuer), which is licensed under the MIT License.
