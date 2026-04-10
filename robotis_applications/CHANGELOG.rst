@@ -2,6 +2,11 @@
 Changelog for package robotis_applications
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+0.0.3 (2026-04-13)
+------------------
+* Add VR support for HX5
+* Contributors: Hyunwoo Nam
+
 0.0.2 (2026-04-06)
 ------------------
 * Add third-party notice to README
