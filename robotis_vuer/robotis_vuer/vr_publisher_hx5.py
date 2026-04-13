@@ -17,23 +17,21 @@
 # Authors: Wonho Yun
 
 import asyncio
-import math
 import os
 import socket
 import threading
 import traceback
 
-from geometry_msgs.msg import Point, Point32, Quaternion
+from geometry_msgs.msg import Point32, Quaternion
 import nest_asyncio
 import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from robotis_interfaces.msg import HandJoints
-from scipy.spatial.transform import Rotation as R
 from std_msgs.msg import Bool
 from vuer import Vuer
-from vuer.schemas import Hands, HemisphereLightStage, ImageBackground, Scene
+from vuer.schemas import Hands, HemisphereLightStage, Scene
 
 # Allow nested asyncio execution
 nest_asyncio.apply()
