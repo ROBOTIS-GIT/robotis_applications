@@ -27,7 +27,7 @@ def generate_launch_description():
     model_arg = DeclareLaunchArgument(
         'model',
         default_value='sh5',
-        description='VR model to run: sg2 or sh5',
+        description='VR model to run: hx5, sg2, or sh5',
     )
 
     model = LaunchConfiguration('model')
@@ -51,9 +51,20 @@ def generate_launch_description():
             PythonExpression(["'true' if '", model, "' == 'sh5' else 'false'"])
         ),
     )
+    hx5_node = Node(
+        package='robotis_vuer',
+        executable='vr_publisher_hx5',
+        name='vr_publisher_hx5',
+        output='screen',
+        emulate_tty=True,
+        condition=IfCondition(
+            PythonExpression(["'true' if '", model, "' == 'hx5' else 'false'"])
+        ),
+    )
 
     return LaunchDescription([
         model_arg,
         sg2_node,
         sh5_node,
+        hx5_node,
     ])
