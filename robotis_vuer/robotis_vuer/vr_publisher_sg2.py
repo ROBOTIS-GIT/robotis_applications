@@ -306,12 +306,12 @@ class VRTrajectoryPublisher(Node):
         self.joystick_mode = True
         self.prev_left_thumbstick_pressed = False
         self.prev_right_thumbstick_pressed = False
-        self.linear_x_scale = 3.0
-        self.linear_y_scale = 3.0
-        self.angular_z_scale = 2.0
+        self.linear_x_scale = 5.0
+        self.linear_y_scale = 5.0
+        self.angular_z_scale = 3.0
         # Match joystick_controller parameters
         self.left_jog_scale = 0.06
-        self.right_jog_scale = 0.01
+        self.right_jog_scale = 0.005
         self.deadzone = 0.05
         # Match sensorxel_l_joy_reverse_interfaces (X/Y reversed) in controller config
         self.left_reverse_x = False
@@ -739,7 +739,12 @@ class VRTrajectoryPublisher(Node):
     def publish_right_joystick(self, thumbstick_value):
         """Publish lift_joint target from right thumbstick."""
         try:
-            deadzone_applied_value = self.apply_deadzone(float(thumbstick_value))
+            raw_thumbstick_value = float(thumbstick_value)
+            # Only jog the lift when the stick is pushed to the edge.
+            if not (raw_thumbstick_value < -0.95 or raw_thumbstick_value > 0.95):
+                return
+
+            deadzone_applied_value = self.apply_deadzone(raw_thumbstick_value)
             if abs(deadzone_applied_value) <= 1e-6:
                 return
 
