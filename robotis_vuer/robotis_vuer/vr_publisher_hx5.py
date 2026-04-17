@@ -22,7 +22,7 @@ import socket
 import threading
 import traceback
 
-from geometry_msgs.msg import Point32, Quaternion
+from geometry_msgs.msg import Point32
 import nest_asyncio
 import numpy as np
 import rclpy
