@@ -173,7 +173,6 @@ class VRTrajectoryPublisher(Node):
             self.start_poses_right = False
             self.prev_poses_left.fill(0.0)
             self.prev_poses_right.fill(0.0)
-            self.pose_filters.clear()
 
     def log_status(self):
         """Log current system status for debugging."""
