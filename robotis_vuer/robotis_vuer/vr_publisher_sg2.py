@@ -38,7 +38,9 @@ from vuer.schemas import Body, MotionControllers, Scene
 nest_asyncio.apply()
 
 BODY_HEAD_INDEX = 6  # XRBodyJoint 'head'
+BODY_LEFT_SHOULDER_INDEX = 7  # XRBodyJoint 'left-shoulder'
 BODY_LEFT_ELBOW_INDEX = 10  # XRBodyJoint 'left-arm-lower'
+BODY_RIGHT_SHOULDER_INDEX = 12  # XRBodyJoint 'right-shoulder'
 BODY_RIGHT_ELBOW_INDEX = 15  # XRBodyJoint 'right-arm-lower'
 # Head-relative VR frame from (head_inverse @ world):
 # +Y=forward, +Z=right, +X=down. Convert to ROS (+X forward, +Y left, +Z up).
@@ -83,6 +85,12 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('right_elbow_offset_x', 0.0)
         self.declare_parameter('right_elbow_offset_y', 0.0)
         self.declare_parameter('right_elbow_offset_z', 0.0)
+        self.declare_parameter('left_shoulder_offset_x', 0.0)
+        self.declare_parameter('left_shoulder_offset_y', 0.0)
+        self.declare_parameter('left_shoulder_offset_z', 0.0)
+        self.declare_parameter('right_shoulder_offset_x', 0.0)
+        self.declare_parameter('right_shoulder_offset_y', 0.0)
+        self.declare_parameter('right_shoulder_offset_z', 0.0)
         self.declare_parameter('goal_pose_squeeze_threshold', 0.8)
 
         # VR publishing control flag
@@ -154,16 +162,22 @@ class VRTrajectoryPublisher(Node):
 
         # Wrist/elbow pose publishers for visualization
         self.left_wrist_rviz_pub = self.create_publisher(
-            PoseStamped, '/l_goal_pose', self.vr_stream_qos
+            PoseStamped, '/l_wrist_pose', self.vr_stream_qos
         )
         self.right_wrist_rviz_pub = self.create_publisher(
-            PoseStamped, '/r_goal_pose', self.vr_stream_qos
+            PoseStamped, '/r_wrist_pose', self.vr_stream_qos
         )
         self.left_elbow_rviz_pub = self.create_publisher(
             PoseStamped, '/l_elbow_pose', self.vr_stream_qos
         )
         self.right_elbow_rviz_pub = self.create_publisher(
             PoseStamped, '/r_elbow_pose', self.vr_stream_qos
+        )
+        self.left_shoulder_rviz_pub = self.create_publisher(
+            PoseStamped, '/l_shoulder_pose', self.vr_stream_qos
+        )
+        self.right_shoulder_rviz_pub = self.create_publisher(
+            PoseStamped, '/r_shoulder_pose', self.vr_stream_qos
         )
 
         # Reactivate topic publisher
@@ -184,6 +198,12 @@ class VRTrajectoryPublisher(Node):
         # VR data storage
         self.left_controller_matrix = None
         self.right_controller_matrix = None
+        self.left_elbow_matrix = None
+        self.right_elbow_matrix = None
+        self.left_shoulder_matrix = None
+        self.right_shoulder_matrix = None
+        self.pending_body_pose_frame = False
+        self.pending_controller_pose_frame = False
         self.left_controller_state = {}
         self.right_controller_state = {}
         self.left_squeeze_value = 0.0
@@ -247,6 +267,30 @@ class VRTrajectoryPublisher(Node):
                 ).get_parameter_value().double_value,
             ], dtype=np.float64),
         }
+        self.shoulder_position_offsets = {
+            'left': np.array([
+                self.get_parameter(
+                    'left_shoulder_offset_x'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'left_shoulder_offset_y'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'left_shoulder_offset_z'
+                ).get_parameter_value().double_value,
+            ], dtype=np.float64),
+            'right': np.array([
+                self.get_parameter(
+                    'right_shoulder_offset_x'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'right_shoulder_offset_y'
+                ).get_parameter_value().double_value,
+                self.get_parameter(
+                    'right_shoulder_offset_z'
+                ).get_parameter_value().double_value,
+            ], dtype=np.float64),
+        }
         self.wrist_rotation_offsets = {
             'left': R.from_euler('xyz', [
                 self.get_parameter(
@@ -299,6 +343,8 @@ class VRTrajectoryPublisher(Node):
             'right_wrist': 0.0,
             'left_elbow': 0.0,
             'right_elbow': 0.0,
+            'left_shoulder': 0.0,
+            'right_shoulder': 0.0,
         }
 
         # Thumbstick mode:
@@ -574,16 +620,59 @@ class VRTrajectoryPublisher(Node):
             return None
         return joint_matrix
 
-    def _publish_wrist_pose_from_matrix(self, world_joint_matrix, side):
+    def _should_publish_pose_key(self, pose_key, now_sec):
+        """Check whether a pose key can be published at the requested time."""
+        return (
+            self.pose_min_period <= 0.0 or
+            (now_sec - self.last_pose_publish_sec[pose_key]) >= self.pose_min_period
+        )
+
+    def _publish_synced_pose_frame_if_ready(self):
+        """Publish the latest arm pose frame once body and controller data are both updated."""
+        if not self.can_publish_goal_pose():
+            self.pending_body_pose_frame = False
+            self.pending_controller_pose_frame = False
+            return
+        if not self.pending_body_pose_frame or not self.pending_controller_pose_frame:
+            return
+
+        batch_time = self.get_clock().now()
+        batch_stamp = batch_time.to_msg()
+        now_sec = batch_time.nanoseconds / 1e9
+
+        self._publish_wrist_pose_from_matrix(
+            self.left_controller_matrix, 'left', stamp=batch_stamp, now_sec=now_sec
+        )
+        self._publish_wrist_pose_from_matrix(
+            self.right_controller_matrix, 'right', stamp=batch_stamp, now_sec=now_sec
+        )
+        self._publish_elbow_pose_from_matrix(
+            self.left_elbow_matrix, 'left', stamp=batch_stamp, now_sec=now_sec
+        )
+        self._publish_shoulder_pose_from_matrix(
+            self.left_shoulder_matrix, 'left', stamp=batch_stamp, now_sec=now_sec
+        )
+        self._publish_elbow_pose_from_matrix(
+            self.right_elbow_matrix, 'right', stamp=batch_stamp, now_sec=now_sec
+        )
+        self._publish_shoulder_pose_from_matrix(
+            self.right_shoulder_matrix, 'right', stamp=batch_stamp, now_sec=now_sec
+        )
+
+        self.pending_body_pose_frame = False
+        self.pending_controller_pose_frame = False
+
+    def _publish_wrist_pose_from_matrix(self, world_joint_matrix, side, stamp=None, now_sec=None):
         """Publish wrist pose from a world transform matrix."""
         try:
+            if world_joint_matrix is None:
+                return
             if not self.can_publish_goal_pose():
                 return
             pose_key = f'{side}_wrist'
-            now_sec = self.get_clock().now().nanoseconds / 1e9
-            if (self.pose_min_period > 0.0 and
-                    (now_sec - self.last_pose_publish_sec[pose_key])
-                    < self.pose_min_period):
+            if now_sec is None:
+                now_sec = self.get_clock().now().nanoseconds / 1e9
+            if not self._should_publish_pose_key(pose_key, now_sec):
                 return
 
             relative_joint_matrix = self.head_inverse_matrix @ world_joint_matrix
@@ -606,7 +695,9 @@ class VRTrajectoryPublisher(Node):
             arm_quaternion = base_rotation.as_quat()  # [x, y, z, w]
 
             wrist_pose = PoseStamped()
-            wrist_pose.header.stamp = self.get_clock().now().to_msg()
+            wrist_pose.header.stamp = (
+                stamp if stamp is not None else self.get_clock().now().to_msg()
+            )
             wrist_pose.header.frame_id = 'base_link'
             wrist_pose.pose.position = self.safe_point(
                 base_position[0], base_position[1], base_position[2]
@@ -624,16 +715,17 @@ class VRTrajectoryPublisher(Node):
         except Exception as e:
             self.get_logger().warn(f'Error publishing wrist pose from matrix for {side}: {e}')
 
-    def _publish_elbow_pose_from_matrix(self, world_joint_matrix, side):
+    def _publish_elbow_pose_from_matrix(self, world_joint_matrix, side, stamp=None, now_sec=None):
         """Publish elbow pose from a body joint world matrix."""
         try:
+            if world_joint_matrix is None:
+                return
             if not self.can_publish_goal_pose():
                 return
             pose_key = f'{side}_elbow'
-            now_sec = self.get_clock().now().nanoseconds / 1e9
-            if (self.pose_min_period > 0.0 and
-                    (now_sec - self.last_pose_publish_sec[pose_key])
-                    < self.pose_min_period):
+            if now_sec is None:
+                now_sec = self.get_clock().now().nanoseconds / 1e9
+            if not self._should_publish_pose_key(pose_key, now_sec):
                 return
 
             relative_joint_matrix = self.head_inverse_matrix @ world_joint_matrix
@@ -654,7 +746,9 @@ class VRTrajectoryPublisher(Node):
             elbow_quaternion = elbow_rotation.as_quat()
 
             elbow_pose = PoseStamped()
-            elbow_pose.header.stamp = self.get_clock().now().to_msg()
+            elbow_pose.header.stamp = (
+                stamp if stamp is not None else self.get_clock().now().to_msg()
+            )
             elbow_pose.header.frame_id = 'base_link'
             elbow_pose.pose.position = self.safe_point(
                 base_position[0], base_position[1], base_position[2]
@@ -671,6 +765,57 @@ class VRTrajectoryPublisher(Node):
 
         except Exception as e:
             self.get_logger().warn(f'Error publishing elbow pose from matrix for {side}: {e}')
+
+    def _publish_shoulder_pose_from_matrix(self, world_joint_matrix, side, stamp=None, now_sec=None):
+        """Publish shoulder pose from a body joint world matrix."""
+        try:
+            if world_joint_matrix is None:
+                return
+            if not self.can_publish_goal_pose():
+                return
+            pose_key = f'{side}_shoulder'
+            if now_sec is None:
+                now_sec = self.get_clock().now().nanoseconds / 1e9
+            if not self._should_publish_pose_key(pose_key, now_sec):
+                return
+
+            relative_joint_matrix = self.head_inverse_matrix @ world_joint_matrix
+            relative_pos_head, relative_quat_head = self.matrix_to_pose(
+                relative_joint_matrix
+            )
+            relative_pos_ros, relative_quat_ros = self.vr_to_ros_transform(
+                relative_pos_head, relative_quat_head
+            )
+            relative_pos_ros = self.scale_goal_position(relative_pos_ros)
+            shoulder_rotation = R.from_quat(relative_quat_ros)
+
+            base_position = relative_pos_ros - self.camera_to_base_offset
+            base_position = base_position.copy()
+            base_position[2] += self.get_lift_z_delta_for_arm_pose()
+            side_key = side if side in ('left', 'right') else 'left'
+            base_position = base_position + self.shoulder_position_offsets[side_key]
+            shoulder_quaternion = shoulder_rotation.as_quat()
+
+            shoulder_pose = PoseStamped()
+            shoulder_pose.header.stamp = (
+                stamp if stamp is not None else self.get_clock().now().to_msg()
+            )
+            shoulder_pose.header.frame_id = 'base_link'
+            shoulder_pose.pose.position = self.safe_point(
+                base_position[0], base_position[1], base_position[2]
+            )
+            shoulder_pose.pose.orientation = self.safe_quaternion(
+                shoulder_quaternion[0], shoulder_quaternion[1], shoulder_quaternion[2], shoulder_quaternion[3]
+            )
+
+            if side == 'left':
+                self.left_shoulder_rviz_pub.publish(shoulder_pose)
+            elif side == 'right':
+                self.right_shoulder_rviz_pub.publish(shoulder_pose)
+            self.last_pose_publish_sec[pose_key] = now_sec
+
+        except Exception as e:
+            self.get_logger().warn(f'Error publishing shoulder pose from matrix for {side}: {e}')
 
     def process_thumbstick(self):
         """Process thumbstick input for mode switching and joystick control."""
@@ -739,12 +884,7 @@ class VRTrajectoryPublisher(Node):
     def publish_right_joystick(self, thumbstick_value):
         """Publish lift_joint target from right thumbstick."""
         try:
-            raw_thumbstick_value = float(thumbstick_value)
-            # Only jog the lift when the stick is pushed to the edge.
-            if not (raw_thumbstick_value < -0.95 or raw_thumbstick_value > 0.95):
-                return
-
-            deadzone_applied_value = self.apply_deadzone(raw_thumbstick_value)
+            deadzone_applied_value = self.apply_deadzone(float(thumbstick_value))
             if abs(deadzone_applied_value) <= 1e-6:
                 return
 
@@ -1016,17 +1156,20 @@ class VRTrajectoryPublisher(Node):
             except np.linalg.LinAlgError:
                 return
 
-            left_elbow_matrix = self.get_body_joint_matrix_from_flat(
+            self.left_elbow_matrix = self.get_body_joint_matrix_from_flat(
                 body_array, BODY_LEFT_ELBOW_INDEX
             )
-            if left_elbow_matrix is not None:
-                self._publish_elbow_pose_from_matrix(left_elbow_matrix, 'left')
-
-            right_elbow_matrix = self.get_body_joint_matrix_from_flat(
+            self.left_shoulder_matrix = self.get_body_joint_matrix_from_flat(
+                body_array, BODY_LEFT_SHOULDER_INDEX
+            )
+            self.right_elbow_matrix = self.get_body_joint_matrix_from_flat(
                 body_array, BODY_RIGHT_ELBOW_INDEX
             )
-            if right_elbow_matrix is not None:
-                self._publish_elbow_pose_from_matrix(right_elbow_matrix, 'right')
+            self.right_shoulder_matrix = self.get_body_joint_matrix_from_flat(
+                body_array, BODY_RIGHT_SHOULDER_INDEX
+            )
+            self.pending_body_pose_frame = True
+            self._publish_synced_pose_frame_if_ready()
 
         except Exception as e:
             self.get_logger().error(f'Error in body tracking event: {e}')
@@ -1140,14 +1283,19 @@ class VRTrajectoryPublisher(Node):
                 self.left_controller_matrix = np.asarray(
                     left_matrix_raw, dtype=np.float64
                 ).reshape(4, 4, order='F')
-                self._publish_wrist_pose_from_matrix(self.left_controller_matrix, 'left')
 
             right_matrix_raw = data.get('right')
             if isinstance(right_matrix_raw, (list, np.ndarray)) and len(right_matrix_raw) == 16:
                 self.right_controller_matrix = np.asarray(
                     right_matrix_raw, dtype=np.float64
                 ).reshape(4, 4, order='F')
-                self._publish_wrist_pose_from_matrix(self.right_controller_matrix, 'right')
+            if (
+                isinstance(left_matrix_raw, (list, np.ndarray)) and len(left_matrix_raw) == 16
+            ) or (
+                isinstance(right_matrix_raw, (list, np.ndarray)) and len(right_matrix_raw) == 16
+            ):
+                self.pending_controller_pose_frame = True
+                self._publish_synced_pose_frame_if_ready()
 
             self.controller_log_counter += 1
             if self.controller_log_counter % self.log_every_n == 0:
