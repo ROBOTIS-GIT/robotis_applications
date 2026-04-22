@@ -225,10 +225,10 @@ class VRTrajectoryPublisher(Node):
         # Wrist/elbow position offsets (head-relative, ROS frame: X forward, Y left, Z up)
         self.declare_parameter('wrist_offset_x', 0.0)
         self.declare_parameter('wrist_offset_y', 0.0)
-        self.declare_parameter('wrist_offset_z', 0.0)
+        self.declare_parameter('wrist_offset_z', -0.3)
         self.declare_parameter('elbow_offset_x', 0.0)
         self.declare_parameter('elbow_offset_y', 0.0)
-        self.declare_parameter('elbow_offset_z', 0.0)
+        self.declare_parameter('elbow_offset_z', -0.3)
 
         self.enable_vr_image = (
             self.get_parameter('enable_vr_image')
