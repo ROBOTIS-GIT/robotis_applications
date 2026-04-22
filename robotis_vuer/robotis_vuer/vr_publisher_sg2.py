@@ -42,6 +42,7 @@ BODY_LEFT_SHOULDER_INDEX = 7  # XRBodyJoint 'left-shoulder'
 BODY_LEFT_ELBOW_INDEX = 10  # XRBodyJoint 'left-arm-lower'
 BODY_RIGHT_SHOULDER_INDEX = 12  # XRBodyJoint 'right-shoulder'
 BODY_RIGHT_ELBOW_INDEX = 15  # XRBodyJoint 'right-arm-lower'
+EYE_NECK_OFFSET_Z = -0.25  # z offset occurs when vr headset is worn on neck
 # Head-relative VR frame from (head_inverse @ world):
 # +Y=forward, +Z=right, +X=down. Convert to ROS (+X forward, +Y left, +Z up).
 VR_HEAD_TO_ROS = np.array([
@@ -58,10 +59,10 @@ class VRTrajectoryPublisher(Node):
         self.get_logger().set_level(rclpy.logging.LoggingSeverity.INFO)
         self.declare_parameter('left_wrist_offset_x', 0.0)
         self.declare_parameter('left_wrist_offset_y', 0.0)
-        self.declare_parameter('left_wrist_offset_z', 0.0)
+        self.declare_parameter('left_wrist_offset_z', EYE_NECK_OFFSET_Z)
         self.declare_parameter('right_wrist_offset_x', 0.0)
         self.declare_parameter('right_wrist_offset_y', 0.0)
-        self.declare_parameter('right_wrist_offset_z', 0.0)
+        self.declare_parameter('right_wrist_offset_z', EYE_NECK_OFFSET_Z)
         self.declare_parameter('left_wrist_roll_offset_deg', 90.0)
         self.declare_parameter('left_wrist_pitch_offset_deg', 0.0)
         self.declare_parameter('left_wrist_yaw_offset_deg', 0.0)
@@ -81,10 +82,10 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('lift_to_arm_z_scale', 1.0)
         self.declare_parameter('left_elbow_offset_x', 0.0)
         self.declare_parameter('left_elbow_offset_y', 0.0)
-        self.declare_parameter('left_elbow_offset_z', 0.0)
+        self.declare_parameter('left_elbow_offset_z', EYE_NECK_OFFSET_Z)
         self.declare_parameter('right_elbow_offset_x', 0.0)
         self.declare_parameter('right_elbow_offset_y', 0.0)
-        self.declare_parameter('right_elbow_offset_z', 0.0)
+        self.declare_parameter('right_elbow_offset_z', EYE_NECK_OFFSET_Z)
         self.declare_parameter('left_shoulder_offset_x', -0.1)
         self.declare_parameter('left_shoulder_offset_y', 0.2)
         self.declare_parameter('left_shoulder_offset_z', -0.1)
