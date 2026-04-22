@@ -85,12 +85,12 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('right_elbow_offset_x', 0.0)
         self.declare_parameter('right_elbow_offset_y', 0.0)
         self.declare_parameter('right_elbow_offset_z', 0.0)
-        self.declare_parameter('left_shoulder_offset_x', 0.0)
-        self.declare_parameter('left_shoulder_offset_y', 0.0)
-        self.declare_parameter('left_shoulder_offset_z', 0.0)
-        self.declare_parameter('right_shoulder_offset_x', 0.0)
-        self.declare_parameter('right_shoulder_offset_y', 0.0)
-        self.declare_parameter('right_shoulder_offset_z', 0.0)
+        self.declare_parameter('left_shoulder_offset_x', -0.1)
+        self.declare_parameter('left_shoulder_offset_y', 0.2)
+        self.declare_parameter('left_shoulder_offset_z', -0.1)
+        self.declare_parameter('right_shoulder_offset_x', -0.1)
+        self.declare_parameter('right_shoulder_offset_y', -0.2)
+        self.declare_parameter('right_shoulder_offset_z', -0.1)
         self.declare_parameter('goal_pose_squeeze_threshold', 0.8)
 
         # VR publishing control flag
