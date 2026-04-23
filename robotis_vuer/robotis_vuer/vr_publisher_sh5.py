@@ -236,12 +236,12 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('right_elbow_offset_x', 0.0)
         self.declare_parameter('right_elbow_offset_y', 0.0)
         self.declare_parameter('right_elbow_offset_z', EYE_NECK_OFFSET_Z)
-        self.declare_parameter('left_shoulder_offset_x', -0.1)
-        self.declare_parameter('left_shoulder_offset_y', 0.2)
-        self.declare_parameter('left_shoulder_offset_z', -0.1)
-        self.declare_parameter('right_shoulder_offset_x', -0.1)
-        self.declare_parameter('right_shoulder_offset_y', -0.2)
-        self.declare_parameter('right_shoulder_offset_z', -0.1)
+        self.declare_parameter('left_shoulder_offset_x', -0.2)
+        self.declare_parameter('left_shoulder_offset_y', 0.0)
+        self.declare_parameter('left_shoulder_offset_z', 0.0)
+        self.declare_parameter('right_shoulder_offset_x', -0.2)
+        self.declare_parameter('right_shoulder_offset_y', 0.0)
+        self.declare_parameter('right_shoulder_offset_z', 0.0)
 
         self.enable_vr_image = (
             self.get_parameter('enable_vr_image')
@@ -832,8 +832,12 @@ class VRTrajectoryPublisher(Node):
         scaled_pos = camera_relative_position * vr_scale
         base_position = scaled_pos - self.zedm_to_base_offset
 
-        # When the user squats/stands, shift arm target Z by current head height delta.
-        if self.apply_head_height_to_arm_z and pose_role in ('wrist', 'elbow', 'shoulder'):
+        # Only couple head-height changes into arm Z when lift publishing is enabled.
+        if (
+            self.enable_lift_publishing
+            and self.apply_head_height_to_arm_z
+            and pose_role in ('wrist', 'elbow', 'shoulder')
+        ):
             base_position = base_position.copy()
             base_position[2] += float(self.head_height_offset_for_arms)
 
@@ -1446,8 +1450,8 @@ class VRTrajectoryPublisher(Node):
                 pose_batch_stamp = locals().get('pose_batch_stamp', self.get_clock().now().to_msg())
                 left_elbow_matrix = self.get_body_joint_matrix_from_flat(body_array, 'left-arm-lower')
                 right_elbow_matrix = self.get_body_joint_matrix_from_flat(body_array, 'right-arm-lower')
-                left_shoulder_matrix = self.get_body_joint_matrix_from_flat(body_array, 'left-shoulder')
-                right_shoulder_matrix = self.get_body_joint_matrix_from_flat(body_array, 'right-shoulder')
+                left_shoulder_matrix = self.get_body_joint_matrix_from_flat(body_array, 'left-scapula')
+                right_shoulder_matrix = self.get_body_joint_matrix_from_flat(body_array, 'right-scapula')
 
                 if left_elbow_matrix is not None:
                     self.publish_body_joint_pose(
