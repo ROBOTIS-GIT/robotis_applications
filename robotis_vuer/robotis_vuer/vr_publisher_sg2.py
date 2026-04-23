@@ -885,7 +885,12 @@ class VRTrajectoryPublisher(Node):
     def publish_right_joystick(self, thumbstick_value):
         """Publish lift_joint target from right thumbstick."""
         try:
-            deadzone_applied_value = self.apply_deadzone(float(thumbstick_value))
+            raw_thumbstick_value = float(thumbstick_value)
+            # Only jog the lift when the stick is pushed to the edge.
+            if not (raw_thumbstick_value < -0.95 or raw_thumbstick_value > 0.95):
+                return
+
+            deadzone_applied_value = self.apply_deadzone(raw_thumbstick_value)
             if abs(deadzone_applied_value) <= 1e-6:
                 return
 
