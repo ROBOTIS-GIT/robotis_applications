@@ -396,6 +396,8 @@ class VRTrajectoryPublisher(Node):
             self.reactivate_callback,
             10
         )
+        self.has_received_reactivate = False
+        self.last_reactivate_state = False
         self.odom_sub = self.create_subscription(
             Odometry, '/odom', self.odom_callback, self.vr_stream_qos
         )
@@ -547,16 +549,26 @@ class VRTrajectoryPublisher(Node):
     def reactivate_callback(self, msg):
         """Set VR publishing from /reactivate Bool message."""
         new_state = bool(msg.data)
-        self._set_vr_publishing_enabled(new_state)
+        reset_references = (
+            self.has_received_reactivate
+            and (not self.last_reactivate_state)
+            and new_state
+        )
+        self._set_vr_publishing_enabled(
+            new_state,
+            reset_references=reset_references,
+        )
+        self.last_reactivate_state = new_state
+        self.has_received_reactivate = True
 
-    def _set_vr_publishing_enabled(self, new_state):
+    def _set_vr_publishing_enabled(self, new_state, reset_references=False):
         """Apply VR publishing on/off and the same side effects as the old Bool topic."""
         new_state = bool(new_state)
         self.vr_publishing_enabled = new_state
         # status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
         # self.get_logger().info(f'VR publishing set to: {status}')
 
-        if self.vr_publishing_enabled:
+        if self.vr_publishing_enabled and reset_references:
             self.start_poses_left = False
             self.start_poses_right = False
             self.prev_poses_left.fill(0.0)
@@ -583,24 +595,8 @@ class VRTrajectoryPublisher(Node):
                 self.initial_odom_position = None
                 self.initial_odom_yaw = None
                 # self.get_logger().warn('VR control enabled but odom not available yet')
-        else:
-            self.left_joint_positions = [0.0] * 20
-            self.right_joint_positions = [0.0] * 20
-            self.start_poses_left = False
-            self.start_poses_right = False
-            self.prev_poses_left.fill(0.0)
-            self.prev_poses_right.fill(0.0)
-            self.initial_odom_position = None
-            self.initial_odom_yaw = None
-            self.initial_camera_height = None
-            self.initial_camera_position = None
-            self.initial_camera_yaw = None
-            self.filtered_lift_position = None
-            self.last_lift_time = None
-            self.z_calibrated = False
-            self.head_height_offset_for_arms = 0.0
-            self.pose_filters.clear()
-            # self.get_logger().info('Joint positions reset to zero')
+        elif not self.vr_publishing_enabled:
+            return
 
     def log_status(self):
         """Log current system status for debugging."""
