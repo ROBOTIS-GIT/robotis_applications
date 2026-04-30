@@ -1264,7 +1264,7 @@ class VRTrajectoryPublisher(Node):
                 # Use same-frame head height change for arm target Z (camera-relative behavior).
                 self.head_height_offset_for_arms = float(relative_height)
 
-                # Process arm poses with this head so all targets use same-frame body data.
+                # Shared arm-pose timestamp keeps left/right wrist/elbow/shoulder aligned.
                 pose_batch_stamp = self.get_clock().now().to_msg()
 
                 # Process hands with this head so camera-relative pose uses same-frame head.
@@ -1449,7 +1449,6 @@ class VRTrajectoryPublisher(Node):
             # --- Arm body-joint poses: publish only when current-frame head is valid ---
             # Prevent using stale head_inverse_matrix, which can look world-fixed.
             if head_matrix is not None:
-                pose_batch_stamp = locals().get('pose_batch_stamp', self.get_clock().now().to_msg())
                 left_elbow_matrix = self.get_body_joint_matrix_from_flat(body_array, 'left-arm-lower')
                 right_elbow_matrix = self.get_body_joint_matrix_from_flat(body_array, 'right-arm-lower')
                 left_shoulder_matrix = self.get_body_joint_matrix_from_flat(body_array, 'left-scapula')

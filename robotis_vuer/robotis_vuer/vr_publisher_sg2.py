@@ -343,6 +343,7 @@ class VRTrajectoryPublisher(Node):
                 f'{self.goal_pose_position_scale}; fallback to 1.0'
             )
             self.goal_pose_position_scale = 1.0
+        self.controller_back_offset_m = 0.12    # Offset applied to controller pose to match wrist pose
         self.pose_publish_hz = float(self.get_parameter('pose_publish_hz').value)
         self.pose_min_period = (1.0 / self.pose_publish_hz) if self.pose_publish_hz > 0.0 else 0.0
         self.last_pose_publish_sec = {
@@ -447,7 +448,6 @@ class VRTrajectoryPublisher(Node):
             f'Lift->arm Z coupling: enabled={self.apply_lift_to_arm_z}, '
             f'scale={self.lift_to_arm_z_scale:.3f}'
         )
-
     def is_valid_float(self, value):
         """Check if value is valid float (excluding NaN, inf)."""
         return isinstance(value, (int, float)) and np.isfinite(value)
@@ -612,6 +612,17 @@ class VRTrajectoryPublisher(Node):
         """Scale head-relative arm target position before base/camera offsets."""
         return np.asarray(position_ros, dtype=np.float64) * self.goal_pose_position_scale
 
+    def apply_controller_back_offset(self, world_joint_matrix):
+        """Shift controller pose backward along its local axis to approximate wrist."""
+        if self.controller_back_offset_m <= 0.0:
+            return world_joint_matrix
+        adjusted_matrix = np.asarray(world_joint_matrix, dtype=np.float64).copy()
+        local_back_axis = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+        adjusted_matrix[:3, 3] += (
+            adjusted_matrix[:3, :3] @ (local_back_axis * self.controller_back_offset_m)
+        )
+        return adjusted_matrix
+
     def get_body_joint_matrix_from_flat(self, body_array, joint_index):
         """Extract a 4x4 body joint matrix from flattened BODY_MOVE array."""
         start_idx = joint_index * 16
@@ -634,6 +645,16 @@ class VRTrajectoryPublisher(Node):
             (now_sec - self.last_pose_publish_sec[pose_key]) >= self.pose_min_period
         )
 
+    def _should_publish_pose_pair(self, left_pose_key, right_pose_key, now_sec):
+        """Check whether a left/right pose pair can be published in sync."""
+        if self.pose_min_period <= 0.0:
+            return True
+        pair_last_publish = max(
+            self.last_pose_publish_sec[left_pose_key],
+            self.last_pose_publish_sec[right_pose_key],
+        )
+        return (now_sec - pair_last_publish) >= self.pose_min_period
+
     def _publish_synced_pose_frame_if_ready(self):
         """Publish the latest arm pose frame once body and controller data are both updated."""
         if not self.can_publish_goal_pose():
@@ -647,29 +668,60 @@ class VRTrajectoryPublisher(Node):
         batch_stamp = batch_time.to_msg()
         now_sec = batch_time.nanoseconds / 1e9
 
-        self._publish_wrist_pose_from_matrix(
-            self.left_controller_matrix, 'left', stamp=batch_stamp, now_sec=now_sec
-        )
-        self._publish_wrist_pose_from_matrix(
-            self.right_controller_matrix, 'right', stamp=batch_stamp, now_sec=now_sec
-        )
-        self._publish_elbow_pose_from_matrix(
-            self.left_elbow_matrix, 'left', stamp=batch_stamp, now_sec=now_sec
-        )
-        self._publish_shoulder_pose_from_matrix(
-            self.left_shoulder_matrix, 'left', stamp=batch_stamp, now_sec=now_sec
-        )
-        self._publish_elbow_pose_from_matrix(
-            self.right_elbow_matrix, 'right', stamp=batch_stamp, now_sec=now_sec
-        )
-        self._publish_shoulder_pose_from_matrix(
-            self.right_shoulder_matrix, 'right', stamp=batch_stamp, now_sec=now_sec
-        )
+        if self._should_publish_pose_pair('left_wrist', 'right_wrist', now_sec):
+            self._publish_wrist_pose_from_matrix(
+                self.left_controller_matrix,
+                'left',
+                stamp=batch_stamp,
+                now_sec=now_sec,
+                skip_rate_limit=True,
+            )
+            self._publish_wrist_pose_from_matrix(
+                self.right_controller_matrix,
+                'right',
+                stamp=batch_stamp,
+                now_sec=now_sec,
+                skip_rate_limit=True,
+            )
+
+        if self._should_publish_pose_pair('left_elbow', 'right_elbow', now_sec):
+            self._publish_elbow_pose_from_matrix(
+                self.left_elbow_matrix,
+                'left',
+                stamp=batch_stamp,
+                now_sec=now_sec,
+                skip_rate_limit=True,
+            )
+            self._publish_elbow_pose_from_matrix(
+                self.right_elbow_matrix,
+                'right',
+                stamp=batch_stamp,
+                now_sec=now_sec,
+                skip_rate_limit=True,
+            )
+
+        if self._should_publish_pose_pair('left_shoulder', 'right_shoulder', now_sec):
+            self._publish_shoulder_pose_from_matrix(
+                self.left_shoulder_matrix,
+                'left',
+                stamp=batch_stamp,
+                now_sec=now_sec,
+                skip_rate_limit=True,
+            )
+            self._publish_shoulder_pose_from_matrix(
+                self.right_shoulder_matrix,
+                'right',
+                stamp=batch_stamp,
+                now_sec=now_sec,
+                skip_rate_limit=True,
+            )
 
         self.pending_body_pose_frame = False
         self.pending_controller_pose_frame = False
 
-    def _publish_wrist_pose_from_matrix(self, world_joint_matrix, side, stamp=None, now_sec=None):
+    def _publish_wrist_pose_from_matrix(
+        self, world_joint_matrix, side, stamp=None, now_sec=None, skip_rate_limit=False
+    ):
         """Publish wrist pose from a world transform matrix."""
         try:
             if world_joint_matrix is None:
@@ -679,9 +731,10 @@ class VRTrajectoryPublisher(Node):
             pose_key = f'{side}_wrist'
             if now_sec is None:
                 now_sec = self.get_clock().now().nanoseconds / 1e9
-            if not self._should_publish_pose_key(pose_key, now_sec):
+            if not skip_rate_limit and not self._should_publish_pose_key(pose_key, now_sec):
                 return
 
+            world_joint_matrix = self.apply_controller_back_offset(world_joint_matrix)
             relative_joint_matrix = self.head_inverse_matrix @ world_joint_matrix
             relative_pos_head, relative_quat_head = self.matrix_to_pose(
                 relative_joint_matrix
@@ -722,7 +775,9 @@ class VRTrajectoryPublisher(Node):
         except Exception as e:
             self.get_logger().warn(f'Error publishing wrist pose from matrix for {side}: {e}')
 
-    def _publish_elbow_pose_from_matrix(self, world_joint_matrix, side, stamp=None, now_sec=None):
+    def _publish_elbow_pose_from_matrix(
+        self, world_joint_matrix, side, stamp=None, now_sec=None, skip_rate_limit=False
+    ):
         """Publish elbow pose from a body joint world matrix."""
         try:
             if world_joint_matrix is None:
@@ -732,7 +787,7 @@ class VRTrajectoryPublisher(Node):
             pose_key = f'{side}_elbow'
             if now_sec is None:
                 now_sec = self.get_clock().now().nanoseconds / 1e9
-            if not self._should_publish_pose_key(pose_key, now_sec):
+            if not skip_rate_limit and not self._should_publish_pose_key(pose_key, now_sec):
                 return
 
             relative_joint_matrix = self.head_inverse_matrix @ world_joint_matrix
@@ -773,7 +828,9 @@ class VRTrajectoryPublisher(Node):
         except Exception as e:
             self.get_logger().warn(f'Error publishing elbow pose from matrix for {side}: {e}')
 
-    def _publish_shoulder_pose_from_matrix(self, world_joint_matrix, side, stamp=None, now_sec=None):
+    def _publish_shoulder_pose_from_matrix(
+        self, world_joint_matrix, side, stamp=None, now_sec=None, skip_rate_limit=False
+    ):
         """Publish shoulder pose from a body joint world matrix."""
         try:
             if world_joint_matrix is None:
@@ -783,7 +840,7 @@ class VRTrajectoryPublisher(Node):
             pose_key = f'{side}_shoulder'
             if now_sec is None:
                 now_sec = self.get_clock().now().nanoseconds / 1e9
-            if not self._should_publish_pose_key(pose_key, now_sec):
+            if not skip_rate_limit and not self._should_publish_pose_key(pose_key, now_sec):
                 return
 
             relative_joint_matrix = self.head_inverse_matrix @ world_joint_matrix
