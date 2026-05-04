@@ -4,6 +4,7 @@ Changelog for package robotis_applications
 
 0.0.5 (2026-05-04)
 ------------------
+* Applied lift joystick deadzone and base joystick scaling
 * Updated VR publishers to publish shoulder pose
 * Modified VR publishers to synchronize timestamps of pose topics
 * Fixed initial pose resetting logic for VR publishers
