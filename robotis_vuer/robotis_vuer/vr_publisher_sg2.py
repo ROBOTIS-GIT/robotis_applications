@@ -337,7 +337,8 @@ class VRTrajectoryPublisher(Node):
                 f'{self.goal_pose_position_scale}; fallback to 1.0'
             )
             self.goal_pose_position_scale = 1.0
-        self.controller_back_offset_m = 0.12    # Offset applied to controller pose to match wrist pose
+        # Offset applied to controller pose to match wrist pose.
+        self.controller_back_offset_m = 0.12
         self.pose_publish_hz = float(self.get_parameter('pose_publish_hz').value)
         self.pose_min_period = (1.0 / self.pose_publish_hz) if self.pose_publish_hz > 0.0 else 0.0
         self.last_pose_publish_sec = {
@@ -442,6 +443,7 @@ class VRTrajectoryPublisher(Node):
             f'Lift->arm Z coupling: enabled={self.apply_lift_to_arm_z}, '
             f'scale={self.lift_to_arm_z_scale:.3f}'
         )
+
     def is_valid_float(self, value):
         """Check if value is valid float (excluding NaN, inf)."""
         return isinstance(value, (int, float)) and np.isfinite(value)
@@ -863,7 +865,10 @@ class VRTrajectoryPublisher(Node):
                 base_position[0], base_position[1], base_position[2]
             )
             shoulder_pose.pose.orientation = self.safe_quaternion(
-                shoulder_quaternion[0], shoulder_quaternion[1], shoulder_quaternion[2], shoulder_quaternion[3]
+                shoulder_quaternion[0],
+                shoulder_quaternion[1],
+                shoulder_quaternion[2],
+                shoulder_quaternion[3],
             )
 
             if side == 'left':

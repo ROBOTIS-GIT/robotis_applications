@@ -282,14 +282,26 @@ class VRTrajectoryPublisher(Node):
         }
         self.shoulder_offsets = {
             'left': {
-                'x': self.get_parameter('left_shoulder_offset_x').get_parameter_value().double_value,
-                'y': self.get_parameter('left_shoulder_offset_y').get_parameter_value().double_value,
-                'z': self.get_parameter('left_shoulder_offset_z').get_parameter_value().double_value,
+                'x': self.get_parameter(
+                    'left_shoulder_offset_x'
+                ).get_parameter_value().double_value,
+                'y': self.get_parameter(
+                    'left_shoulder_offset_y'
+                ).get_parameter_value().double_value,
+                'z': self.get_parameter(
+                    'left_shoulder_offset_z'
+                ).get_parameter_value().double_value,
             },
             'right': {
-                'x': self.get_parameter('right_shoulder_offset_x').get_parameter_value().double_value,
-                'y': self.get_parameter('right_shoulder_offset_y').get_parameter_value().double_value,
-                'z': self.get_parameter('right_shoulder_offset_z').get_parameter_value().double_value,
+                'x': self.get_parameter(
+                    'right_shoulder_offset_x'
+                ).get_parameter_value().double_value,
+                'y': self.get_parameter(
+                    'right_shoulder_offset_y'
+                ).get_parameter_value().double_value,
+                'z': self.get_parameter(
+                    'right_shoulder_offset_z'
+                ).get_parameter_value().double_value,
             },
         }
 
@@ -1443,10 +1455,18 @@ class VRTrajectoryPublisher(Node):
             # --- Arm body-joint poses: publish only when current-frame head is valid ---
             # Prevent using stale head_inverse_matrix, which can look world-fixed.
             if head_matrix is not None:
-                left_elbow_matrix = self.get_body_joint_matrix_from_flat(body_array, 'left-arm-lower')
-                right_elbow_matrix = self.get_body_joint_matrix_from_flat(body_array, 'right-arm-lower')
-                left_shoulder_matrix = self.get_body_joint_matrix_from_flat(body_array, 'left-scapula')
-                right_shoulder_matrix = self.get_body_joint_matrix_from_flat(body_array, 'right-scapula')
+                left_elbow_matrix = self.get_body_joint_matrix_from_flat(
+                    body_array, 'left-arm-lower'
+                )
+                right_elbow_matrix = self.get_body_joint_matrix_from_flat(
+                    body_array, 'right-arm-lower'
+                )
+                left_shoulder_matrix = self.get_body_joint_matrix_from_flat(
+                    body_array, 'left-scapula'
+                )
+                right_shoulder_matrix = self.get_body_joint_matrix_from_flat(
+                    body_array, 'right-scapula'
+                )
 
                 if left_elbow_matrix is not None:
                     self.publish_body_joint_pose(
@@ -1514,7 +1534,9 @@ class VRTrajectoryPublisher(Node):
             return None
         return mat4
 
-    def publish_body_joint_pose(self, joint_matrix, publisher, side='', pose_role='elbow', stamp=None):
+    def publish_body_joint_pose(
+        self, joint_matrix, publisher, side='', pose_role='elbow', stamp=None
+    ):
         """Publish PoseStamped for a tracked body joint."""
         relative_joint_matrix = self.head_inverse_matrix @ joint_matrix
         pos_head, quat_head = self.matrix_to_pose(relative_joint_matrix)
