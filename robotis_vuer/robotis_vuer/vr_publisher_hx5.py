@@ -22,7 +22,7 @@ import socket
 import threading
 import traceback
 
-from geometry_msgs.msg import Point32, Quaternion
+from geometry_msgs.msg import Point32
 import nest_asyncio
 import numpy as np
 import rclpy
@@ -121,13 +121,6 @@ class VRTrajectoryPublisher(Node):
         self.prev_poses_left = np.zeros((21, 3))
         self.start_poses_left = False
 
-        # Cached transform constants for hot paths
-        self.vr_to_ros_matrix = np.array([
-            [0.0, 0.0, -1.0],
-            [-1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-        ], dtype=np.float64)
-
         # VR data storage
         self.left_hand_data = None
         self.right_hand_data = None
@@ -139,7 +132,6 @@ class VRTrajectoryPublisher(Node):
 
         # Low-pass filter settings
         self.low_pass_filter_alpha = 0.9
-        self.pose_filters = {}
 
         self.hand_log_counter = 0
         self.wrist_debug_log_counter = 0
@@ -181,37 +173,11 @@ class VRTrajectoryPublisher(Node):
             self.start_poses_right = False
             self.prev_poses_left.fill(0.0)
             self.prev_poses_right.fill(0.0)
-            self.pose_filters.clear()
 
     def log_status(self):
         """Log current system status for debugging."""
         vr_status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
         self.get_logger().info(f'Status: VR={vr_status}')
-
-    def is_valid_float(self, value):
-        """Check if value is valid float (excluding NaN, inf)."""
-        return isinstance(value, (int, float)) and np.isfinite(value)
-
-    # Body head-relative frame from head_inverse @ world:
-    # +Y=forward, +Z=right, +X=down. Convert to ROS (+X forward, +Y left, +Z up).
-    BODY_HEAD_TO_ROS_POSITION = np.array([
-        [0, 1, 0],    # ROS X = head +Y (forward)
-        [0, 0, -1],   # ROS Y = -head Z (left)
-        [-1, 0, 0]    # ROS Z = -head X (up)
-    ])
-
-    def quat_multiply(self, q1, q2):
-        """Multiply two quaternions."""
-        w = q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z
-        x = q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y
-        y = q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x
-        z = q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w
-        msg = Quaternion()
-        msg.x = x
-        msg.y = y
-        msg.z = z
-        msg.w = w
-        return msg
 
     def process_hand_joints(self, hand_data, side='left'):
         """Process VR hand data (retarget) and publish HandJoints."""
