@@ -2,6 +2,14 @@
 Changelog for package robotis_vuer
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+0.0.5 (2026-05-04)
+------------------
+* Applied lift joystick deadzone and base joystick scaling
+* Updated VR publishers to publish shoulder pose
+* Modified VR publishers to synchronize timestamps of pose topics
+* Fixed initial pose resetting logic for VR publishers
+* Contributors: Yeonguk Kim
+
 0.0.4 (2026-04-17)
 ------------------
 * Updated VR z offsets
