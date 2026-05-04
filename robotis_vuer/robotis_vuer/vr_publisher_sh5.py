@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Authors: Wonho Yun
+# Authors: Wonho Yun, Yeonguk Kim
 
 import asyncio
 import math
@@ -236,12 +236,6 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('right_elbow_offset_x', 0.0)
         self.declare_parameter('right_elbow_offset_y', 0.0)
         self.declare_parameter('right_elbow_offset_z', EYE_NECK_OFFSET_Z)
-        # self.declare_parameter('left_shoulder_offset_x', -0.2)
-        # self.declare_parameter('left_shoulder_offset_y', 0.0)
-        # self.declare_parameter('left_shoulder_offset_z', 0.0)
-        # self.declare_parameter('right_shoulder_offset_x', -0.2)
-        # self.declare_parameter('right_shoulder_offset_y', 0.0)
-        # self.declare_parameter('right_shoulder_offset_z', 0.0)
         self.declare_parameter('left_shoulder_offset_x', 0.0)
         self.declare_parameter('left_shoulder_offset_y', 0.0)
         self.declare_parameter('left_shoulder_offset_z', EYE_NECK_OFFSET_Z)
