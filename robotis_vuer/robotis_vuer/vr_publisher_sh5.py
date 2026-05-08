@@ -1203,7 +1203,7 @@ class VRTrajectoryPublisher(Node):
             self.get_logger().error(f'Error in hand tracking session: {e}')
 
     def _is_toggle_gesture_active(self, left_state, right_state):
-        """True when one hand pinches and the other hand squeezes."""
+        """Return True when one hand pinches and the other hand squeezes."""
         if left_state is None or right_state is None:
             return False
         return (
@@ -1782,7 +1782,7 @@ class VRTrajectoryPublisher(Node):
         if dist > self.max_elbow_wrist_distance and dist > 0.0:
             position = other_pos + delta * (self.max_elbow_wrist_distance / dist)
         return position
-    
+
     def publish_trajectory_left(
         self,
         goal: np.ndarray,
