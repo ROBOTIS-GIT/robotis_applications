@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Authors: Wonho Yun
+# Authors: Wonho Yun, Hyunwoo Nam, Yeonguk Kim
 
 import asyncio
 import math
@@ -22,6 +22,7 @@ import os
 import socket
 import threading
 import traceback
+from typing import Sequence
 
 from geometry_msgs.msg import Point, Point32, PoseStamped, Quaternion, Twist
 from nav_msgs.msg import Odometry
@@ -128,12 +129,61 @@ BODY_JOINT_KEYS = [
     'right-foot-ball',
 ]
 
+LEFT_JOINT_NAMES = [
+    'finger_l_joint1',
+    'finger_l_joint2',
+    'finger_l_joint3',
+    'finger_l_joint4',
+    'finger_l_joint5',
+    'finger_l_joint6',
+    'finger_l_joint7',
+    'finger_l_joint8',
+    'finger_l_joint9',
+    'finger_l_joint10',
+    'finger_l_joint11',
+    'finger_l_joint12',
+    'finger_l_joint13',
+    'finger_l_joint14',
+    'finger_l_joint15',
+    'finger_l_joint16',
+    'finger_l_joint17',
+    'finger_l_joint18',
+    'finger_l_joint19',
+    'finger_l_joint20',
+]
+RIGHT_JOINT_NAMES = [
+    'finger_r_joint1',
+    'finger_r_joint2',
+    'finger_r_joint3',
+    'finger_r_joint4',
+    'finger_r_joint5',
+    'finger_r_joint6',
+    'finger_r_joint7',
+    'finger_r_joint8',
+    'finger_r_joint9',
+    'finger_r_joint10',
+    'finger_r_joint11',
+    'finger_r_joint12',
+    'finger_r_joint13',
+    'finger_r_joint14',
+    'finger_r_joint15',
+    'finger_r_joint16',
+    'finger_r_joint17',
+    'finger_r_joint18',
+    'finger_r_joint19',
+    'finger_r_joint20',
+]
+
+EYE_NECK_OFFSET_Z = -0.25  # z offset occurs when vr headset is worn on neck
+
 
 class VRTrajectoryPublisher(Node):
 
     def __init__(self):
         super().__init__('vr_trajectory_publisher')
         self.get_logger().set_level(rclpy.logging.LoggingSeverity.INFO)
+        self.left_joint_names = list(LEFT_JOINT_NAMES)
+        self.right_joint_names = list(RIGHT_JOINT_NAMES)
 
         # Lift and base (whole-body) parameters
         self.declare_parameter('enable_lift_publishing', False)
@@ -222,13 +272,25 @@ class VRTrajectoryPublisher(Node):
         )
         self.declare_parameter('vr_image_fps', 15.0)
 
-        # Wrist/elbow position offsets (head-relative, ROS frame: X forward, Y left, Z up)
-        self.declare_parameter('wrist_offset_x', 0.0)
-        self.declare_parameter('wrist_offset_y', 0.0)
-        self.declare_parameter('wrist_offset_z', -0.3)
-        self.declare_parameter('elbow_offset_x', 0.0)
-        self.declare_parameter('elbow_offset_y', 0.0)
-        self.declare_parameter('elbow_offset_z', -0.3)
+        # Wrist/elbow/shoulder position offsets (head-relative, ROS frame: X forward, Y left, Z up)
+        self.declare_parameter('left_wrist_offset_x', 0.0)
+        self.declare_parameter('left_wrist_offset_y', 0.0)
+        self.declare_parameter('left_wrist_offset_z', EYE_NECK_OFFSET_Z - 0.1)
+        self.declare_parameter('right_wrist_offset_x', 0.0)
+        self.declare_parameter('right_wrist_offset_y', 0.0)
+        self.declare_parameter('right_wrist_offset_z', EYE_NECK_OFFSET_Z - 0.1)
+        self.declare_parameter('left_elbow_offset_x', 0.0)
+        self.declare_parameter('left_elbow_offset_y', 0.0)
+        self.declare_parameter('left_elbow_offset_z', EYE_NECK_OFFSET_Z)
+        self.declare_parameter('right_elbow_offset_x', 0.0)
+        self.declare_parameter('right_elbow_offset_y', 0.0)
+        self.declare_parameter('right_elbow_offset_z', EYE_NECK_OFFSET_Z)
+        self.declare_parameter('left_shoulder_offset_x', 0.0)
+        self.declare_parameter('left_shoulder_offset_y', 0.0)
+        self.declare_parameter('left_shoulder_offset_z', EYE_NECK_OFFSET_Z)
+        self.declare_parameter('right_shoulder_offset_x', 0.0)
+        self.declare_parameter('right_shoulder_offset_y', 0.0)
+        self.declare_parameter('right_shoulder_offset_z', EYE_NECK_OFFSET_Z)
 
         self.enable_vr_image = (
             self.get_parameter('enable_vr_image')
@@ -244,14 +306,52 @@ class VRTrajectoryPublisher(Node):
         )
         self.vr_image_fps = self.get_parameter('vr_image_fps').get_parameter_value().double_value
         self.wrist_offsets = {
-            'x': self.get_parameter('wrist_offset_x').get_parameter_value().double_value,
-            'y': self.get_parameter('wrist_offset_y').get_parameter_value().double_value,
-            'z': self.get_parameter('wrist_offset_z').get_parameter_value().double_value,
+            'left': {
+                'x': self.get_parameter('left_wrist_offset_x').get_parameter_value().double_value,
+                'y': self.get_parameter('left_wrist_offset_y').get_parameter_value().double_value,
+                'z': self.get_parameter('left_wrist_offset_z').get_parameter_value().double_value,
+            },
+            'right': {
+                'x': self.get_parameter('right_wrist_offset_x').get_parameter_value().double_value,
+                'y': self.get_parameter('right_wrist_offset_y').get_parameter_value().double_value,
+                'z': self.get_parameter('right_wrist_offset_z').get_parameter_value().double_value,
+            },
         }
         self.elbow_offsets = {
-            'x': self.get_parameter('elbow_offset_x').get_parameter_value().double_value,
-            'y': self.get_parameter('elbow_offset_y').get_parameter_value().double_value,
-            'z': self.get_parameter('elbow_offset_z').get_parameter_value().double_value,
+            'left': {
+                'x': self.get_parameter('left_elbow_offset_x').get_parameter_value().double_value,
+                'y': self.get_parameter('left_elbow_offset_y').get_parameter_value().double_value,
+                'z': self.get_parameter('left_elbow_offset_z').get_parameter_value().double_value,
+            },
+            'right': {
+                'x': self.get_parameter('right_elbow_offset_x').get_parameter_value().double_value,
+                'y': self.get_parameter('right_elbow_offset_y').get_parameter_value().double_value,
+                'z': self.get_parameter('right_elbow_offset_z').get_parameter_value().double_value,
+            },
+        }
+        self.shoulder_offsets = {
+            'left': {
+                'x': self.get_parameter(
+                    'left_shoulder_offset_x'
+                ).get_parameter_value().double_value,
+                'y': self.get_parameter(
+                    'left_shoulder_offset_y'
+                ).get_parameter_value().double_value,
+                'z': self.get_parameter(
+                    'left_shoulder_offset_z'
+                ).get_parameter_value().double_value,
+            },
+            'right': {
+                'x': self.get_parameter(
+                    'right_shoulder_offset_x'
+                ).get_parameter_value().double_value,
+                'y': self.get_parameter(
+                    'right_shoulder_offset_y'
+                ).get_parameter_value().double_value,
+                'z': self.get_parameter(
+                    'right_shoulder_offset_z'
+                ).get_parameter_value().double_value,
+            },
         }
 
         self.get_logger().info(
@@ -311,6 +411,16 @@ class VRTrajectoryPublisher(Node):
             '/right_hand/hand_joint_pos',
             self.vr_stream_qos
         )
+        self.left_publisher_ = self.create_publisher(
+            JointTrajectory,
+            '/leader/joint_trajectory_command_broadcaster_left_hand/joint_trajectory',
+            self.vr_stream_qos
+        )
+        self.right_publisher_ = self.create_publisher(
+            JointTrajectory,
+            '/leader/joint_trajectory_command_broadcaster_right_hand/joint_trajectory',
+            self.vr_stream_qos
+        )
         self.head_joint_pub = self.create_publisher(
             JointTrajectory,
             '/leader/joystick_controller_left/joint_trajectory',
@@ -330,11 +440,12 @@ class VRTrajectoryPublisher(Node):
         self.vr_camera_goal_pub = self.create_publisher(
             PoseStamped, '/vr_camera_goal_pose', self.vr_stream_qos
         )
+        # Wrist/elbow pose publishers for visualization
         self.left_wrist_rviz_pub = self.create_publisher(
-            PoseStamped, '/l_goal_pose', self.vr_stream_qos
+            PoseStamped, '/l_wrist_pose', self.vr_stream_qos
         )
         self.right_wrist_rviz_pub = self.create_publisher(
-            PoseStamped, '/r_goal_pose', self.vr_stream_qos
+            PoseStamped, '/r_wrist_pose', self.vr_stream_qos
         )
         self.left_elbow_pub = self.create_publisher(
             PoseStamped, '/l_elbow_pose', self.vr_stream_qos
@@ -342,12 +453,17 @@ class VRTrajectoryPublisher(Node):
         self.right_elbow_pub = self.create_publisher(
             PoseStamped, '/r_elbow_pose', self.vr_stream_qos
         )
+        self.left_shoulder_pub = self.create_publisher(
+            PoseStamped, '/l_shoulder_pose', self.vr_stream_qos
+        )
+        self.right_shoulder_pub = self.create_publisher(
+            PoseStamped, '/r_shoulder_pose', self.vr_stream_qos
+        )
 
-        # Reactivate topic
-        self.reactivate_sub = self.create_subscription(
+        # Reactivate topic publisher (sync arm controller on gesture toggle)
+        self.reactivate_pub = self.create_publisher(
             Bool,
             '/reactivate',
-            self.reactivate_callback,
             10
         )
         self.odom_sub = self.create_subscription(
@@ -469,6 +585,7 @@ class VRTrajectoryPublisher(Node):
         self.scaling_vr = 1.1
         self.wrist_vr_scale = 1.4
         self.elbow_vr_scale = 1.4
+        self.shoulder_vr_scale = self.elbow_vr_scale
 
         # Head pitch offset configuration
         self.pitch_offset = -0.5
@@ -476,6 +593,11 @@ class VRTrajectoryPublisher(Node):
         self.hand_log_counter = 0
         self.wrist_debug_log_counter = 0
         self.wrist_debug_log_every_n = 30
+        self.gesture_hold_duration_sec = 3.0
+        self.gesture_combo_hold_start_time = None
+        self.gesture_toggle_latched = False
+        self.gesture_countdown_last_logged_sec = None
+        self.gesture_combo_active_prev = False
 
         self.status_timer = self.create_timer(3.0, self.log_status)
         self.head_log_counter = 0
@@ -490,26 +612,19 @@ class VRTrajectoryPublisher(Node):
         vr_status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
         self.get_logger().info(
             f'VR publishing is {vr_status} by default. '
-            'Publish std_msgs/Bool on /reactivate to set enable/disable.'
+            'Use hand gesture (one pinch + one squeeze for 3s) to toggle.'
         )
 
     def odom_callback(self, msg):
         """Receive robot odometry for base control."""
         self.current_odom = msg
 
-    def reactivate_callback(self, msg):
-        """Set VR publishing from /reactivate Bool message."""
-        new_state = bool(msg.data)
-        self._set_vr_publishing_enabled(new_state)
-
-    def _set_vr_publishing_enabled(self, new_state):
-        """Apply VR publishing on/off and the same side effects as the old Bool topic."""
+    def _set_vr_publishing_enabled(self, new_state, reset_references=False):
+        """Apply VR publishing state and reset references when enabling."""
         new_state = bool(new_state)
         self.vr_publishing_enabled = new_state
-        # status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
-        # self.get_logger().info(f'VR publishing set to: {status}')
 
-        if self.vr_publishing_enabled:
+        if self.vr_publishing_enabled and reset_references:
             self.start_poses_left = False
             self.start_poses_right = False
             self.prev_poses_left.fill(0.0)
@@ -536,24 +651,8 @@ class VRTrajectoryPublisher(Node):
                 self.initial_odom_position = None
                 self.initial_odom_yaw = None
                 # self.get_logger().warn('VR control enabled but odom not available yet')
-        else:
-            self.left_joint_positions = [0.0] * 20
-            self.right_joint_positions = [0.0] * 20
-            self.start_poses_left = False
-            self.start_poses_right = False
-            self.prev_poses_left.fill(0.0)
-            self.prev_poses_right.fill(0.0)
-            self.initial_odom_position = None
-            self.initial_odom_yaw = None
-            self.initial_camera_height = None
-            self.initial_camera_position = None
-            self.initial_camera_yaw = None
-            self.filtered_lift_position = None
-            self.last_lift_time = None
-            self.z_calibrated = False
-            self.head_height_offset_for_arms = 0.0
-            self.pose_filters.clear()
-            # self.get_logger().info('Joint positions reset to zero')
+        elif not self.vr_publishing_enabled:
+            return
 
     def log_status(self):
         """Log current system status for debugging."""
@@ -745,14 +844,15 @@ class VRTrajectoryPublisher(Node):
         ], dtype=np.float64)
 
         apply_right_z_flip = (hand_name == 'right')
+        offsets = self.wrist_offsets[hand_name]
         self.publish_relative_pose(
             camera_relative_position,
             camera_relative_quaternion,
             publisher,
             vr_scale=vr_scale,
-            x_offset=self.wrist_offsets['x'],
-            y_offset=self.wrist_offsets['y'],
-            z_offset=self.wrist_offsets['z'],
+            x_offset=offsets['x'],
+            y_offset=offsets['y'],
+            z_offset=offsets['z'],
             apply_right_z_flip=apply_right_z_flip,
             pose_role='wrist',
             side=hand_name,
@@ -770,6 +870,7 @@ class VRTrajectoryPublisher(Node):
         apply_right_z_flip=False,
         pose_role='wrist',
         side='',
+        stamp=None,
     ):
         """
         Publish a pose in base_link.
@@ -783,8 +884,12 @@ class VRTrajectoryPublisher(Node):
         scaled_pos = camera_relative_position * vr_scale
         base_position = scaled_pos - self.zedm_to_base_offset
 
-        # When the user squats/stands, shift arm target Z by current head height delta.
-        if self.apply_head_height_to_arm_z and pose_role in ('wrist', 'elbow'):
+        # Only couple head-height changes into arm Z when lift publishing is enabled.
+        if (
+            self.enable_lift_publishing
+            and self.apply_head_height_to_arm_z
+            and pose_role in ('wrist', 'elbow', 'shoulder')
+        ):
             base_position = base_position.copy()
             base_position[2] += float(self.head_height_offset_for_arms)
 
@@ -816,7 +921,9 @@ class VRTrajectoryPublisher(Node):
             base_position = self.apply_elbow_wrist_safety(side, pose_role, base_position)
 
         target_pose = PoseStamped()
-        target_pose.header.stamp = self.get_clock().now().to_msg()
+        target_pose.header.stamp = (
+            stamp if stamp is not None else self.get_clock().now().to_msg()
+        )
         target_pose.header.frame_id = 'base_link'
         target_pose.pose.position.x = base_position[0] + x_offset
         target_pose.pose.position.y = base_position[1] + y_offset
@@ -924,13 +1031,15 @@ class VRTrajectoryPublisher(Node):
         ])
         return rot_matrix
 
-    def process_hand_joints(self, hand_data, side='left'):
+    def process_hand_joints(self, hand_data, side='left', pose_stamp=None):
         """Process VR hand data (retarget) and publish HandJoints + wrist target pose."""
         if hand_data is None or len(hand_data) != 400:
             return
 
         hand_joints = HandJoints()
-        hand_joints.header.stamp = self.get_clock().now().to_msg()
+        hand_joints.header.stamp = (
+            pose_stamp if pose_stamp is not None else self.get_clock().now().to_msg()
+        )
         hand_joints.header.frame_id = ''
         hand_joints.joints = []
         temp_joints = np.zeros((21, 3), dtype=np.float64)
@@ -1019,17 +1128,19 @@ class VRTrajectoryPublisher(Node):
             msg_p.z = float(p[2])
             hand_joints.joints.append(msg_p)
 
+        offsets = self.wrist_offsets[side]
         self.publish_relative_pose(
             wrist_pos_ros,
             wrist_quat_ros,
             wrist_publisher,
             vr_scale=self.wrist_vr_scale,
-            x_offset=self.wrist_offsets['x'],
-            y_offset=self.wrist_offsets['y'],
-            z_offset=self.wrist_offsets['z'],
+            x_offset=offsets['x'],
+            y_offset=offsets['y'],
+            z_offset=offsets['z'],
             apply_right_z_flip=(side == 'right'),
             pose_role='wrist',
             side=side,
+            stamp=pose_stamp,
         )
         hand_publisher.publish(hand_joints)
 
@@ -1091,13 +1202,81 @@ class VRTrajectoryPublisher(Node):
         except Exception as e:
             self.get_logger().error(f'Error in hand tracking session: {e}')
 
+    def _is_toggle_gesture_active(self, left_state, right_state):
+        """Return True when one hand pinches and the other hand squeezes."""
+        if left_state is None or right_state is None:
+            return False
+        return (
+            (left_state['pinch'] and right_state['squeeze'])
+            or (right_state['pinch'] and left_state['squeeze'])
+        )
+
+    def _publish_reactivate_state(self, enabled):
+        """Publish /reactivate Bool for arm-controller start/pause."""
+        if not rclpy.ok():
+            return
+        self.reactivate_pub.publish(Bool(data=bool(enabled)))
+
+    def _update_gesture_toggle(self, left_state, right_state):
+        """Toggle VR publishing after holding the gesture combo for 3 seconds."""
+        combo_active = self._is_toggle_gesture_active(left_state, right_state)
+        now_sec = self.get_clock().now().nanoseconds / 1e9
+
+        if not combo_active:
+            if self.gesture_combo_active_prev and not self.gesture_toggle_latched:
+                self.get_logger().info(
+                    '[GESTURE] Toggle gesture interrupted.'
+                )
+            self.gesture_combo_hold_start_time = None
+            self.gesture_toggle_latched = False
+            self.gesture_countdown_last_logged_sec = None
+            self.gesture_combo_active_prev = False
+            return
+
+        if self.gesture_combo_hold_start_time is None:
+            self.gesture_combo_hold_start_time = now_sec
+            self.gesture_countdown_last_logged_sec = None
+            target_state = 'ENABLE' if not self.vr_publishing_enabled else 'PAUSE'
+            self.get_logger().info(
+                f'[GESTURE] Toggle detected. Hold for 3.0s to {target_state} VR teleop.'
+            )
+            self.gesture_combo_active_prev = True
+            return
+
+        held_sec = now_sec - self.gesture_combo_hold_start_time
+        remaining_sec = max(0.0, self.gesture_hold_duration_sec - held_sec)
+        countdown_sec = int(math.ceil(remaining_sec))
+        if (
+            not self.gesture_toggle_latched
+            and held_sec < self.gesture_hold_duration_sec
+            and countdown_sec != self.gesture_countdown_last_logged_sec
+        ):
+            self.get_logger().info(
+                f'[GESTURE] Hold countdown: {countdown_sec}s'
+            )
+            self.gesture_countdown_last_logged_sec = countdown_sec
+
+        if held_sec < self.gesture_hold_duration_sec or self.gesture_toggle_latched:
+            return
+
+        new_state = not self.vr_publishing_enabled
+        self._set_vr_publishing_enabled(new_state, reset_references=new_state)
+        self._publish_reactivate_state(new_state)
+        status_text = 'activated' if new_state else 'disabled'
+        self.get_logger().info(f'[GESTURE] VR teleop {status_text}.')
+        self.gesture_toggle_latched = True
+        self.gesture_countdown_last_logged_sec = None
+        self.gesture_combo_active_prev = True
+
     async def on_hand_move(self, event, session):
         """Handle hand movement events."""
         try:
-            if not self.vr_publishing_enabled:
-                return
             if not isinstance(event.value, dict):
                 return
+
+            left_state = self._extract_gesture_state(event.value.get('leftState'))
+            right_state = self._extract_gesture_state(event.value.get('rightState'))
+            self._update_gesture_toggle(left_state, right_state)
 
             # Only store hand data; processing happens in on_body_tracking_move
             # with same-frame head
@@ -1131,6 +1310,7 @@ class VRTrajectoryPublisher(Node):
             if not rclpy.ok():
                 return
             if not self.vr_publishing_enabled:
+                self.publish_zero_hand_joint_trajectories()
                 return
 
             if not isinstance(event.value, dict) or not event.value:
@@ -1203,11 +1383,18 @@ class VRTrajectoryPublisher(Node):
                 # Use same-frame head height change for arm target Z (camera-relative behavior).
                 self.head_height_offset_for_arms = float(relative_height)
 
+                # Shared arm-pose timestamp keeps left/right wrist/elbow/shoulder aligned.
+                pose_batch_stamp = self.get_clock().now().to_msg()
+
                 # Process hands with this head so camera-relative pose uses same-frame head.
                 if self.left_hand_data is not None:
-                    self.process_hand_joints(self.left_hand_data, 'left')
+                    self.process_hand_joints(
+                        self.left_hand_data, 'left', pose_stamp=pose_batch_stamp
+                    )
                 if self.right_hand_data is not None:
-                    self.process_hand_joints(self.right_hand_data, 'right')
+                    self.process_hand_joints(
+                        self.right_hand_data, 'right', pose_stamp=pose_batch_stamp
+                    )
 
                 # Lift: low-pass filter, rate-limit by max_lift_velocity, then publish
                 if self.enable_lift_publishing:
@@ -1378,16 +1565,54 @@ class VRTrajectoryPublisher(Node):
                         if rclpy.ok():
                             self.head_joint_pub.publish(msg)
 
-            # --- Elbow poses: publish only when current-frame head is valid ---
+            # --- Arm body-joint poses: publish only when current-frame head is valid ---
             # Prevent using stale head_inverse_matrix, which can look world-fixed.
             if head_matrix is not None:
-                left_matrix = self.get_body_joint_matrix_from_flat(body_array, 'left-arm-lower')
-                right_matrix = self.get_body_joint_matrix_from_flat(body_array, 'right-arm-lower')
+                left_elbow_matrix = self.get_body_joint_matrix_from_flat(
+                    body_array, 'left-arm-lower'
+                )
+                right_elbow_matrix = self.get_body_joint_matrix_from_flat(
+                    body_array, 'right-arm-lower'
+                )
+                left_shoulder_matrix = self.get_body_joint_matrix_from_flat(
+                    body_array, 'left-scapula'
+                )
+                right_shoulder_matrix = self.get_body_joint_matrix_from_flat(
+                    body_array, 'right-scapula'
+                )
 
-                if left_matrix is not None:
-                    self.publish_body_joint_pose(left_matrix, self.left_elbow_pub, side='left')
-                if right_matrix is not None:
-                    self.publish_body_joint_pose(right_matrix, self.right_elbow_pub, side='right')
+                if left_elbow_matrix is not None:
+                    self.publish_body_joint_pose(
+                        left_elbow_matrix,
+                        self.left_elbow_pub,
+                        side='left',
+                        pose_role='elbow',
+                        stamp=pose_batch_stamp,
+                    )
+                if left_shoulder_matrix is not None:
+                    self.publish_body_joint_pose(
+                        left_shoulder_matrix,
+                        self.left_shoulder_pub,
+                        side='left',
+                        pose_role='shoulder',
+                        stamp=pose_batch_stamp,
+                    )
+                if right_elbow_matrix is not None:
+                    self.publish_body_joint_pose(
+                        right_elbow_matrix,
+                        self.right_elbow_pub,
+                        side='right',
+                        pose_role='elbow',
+                        stamp=pose_batch_stamp,
+                    )
+                if right_shoulder_matrix is not None:
+                    self.publish_body_joint_pose(
+                        right_shoulder_matrix,
+                        self.right_shoulder_pub,
+                        side='right',
+                        pose_role='shoulder',
+                        stamp=pose_batch_stamp,
+                    )
 
         except Exception as e:
             if (not rclpy.ok()
@@ -1422,29 +1647,38 @@ class VRTrajectoryPublisher(Node):
             return None
         return mat4
 
-    def publish_body_joint_pose(self, joint_matrix, publisher, side=''):
-        """Publish PoseStamped for a body joint (elbow)."""
+    def publish_body_joint_pose(
+        self, joint_matrix, publisher, side='', pose_role='elbow', stamp=None
+    ):
+        """Publish PoseStamped for a tracked body joint."""
         relative_joint_matrix = self.head_inverse_matrix @ joint_matrix
         pos_head, quat_head = self.matrix_to_pose(relative_joint_matrix)
         if not (np.all(np.isfinite(pos_head)) and np.all(np.isfinite(quat_head))):
             return
 
-        # Keep elbow frame conversion identical to wrist head-relative conversion.
+        # Keep arm body-joint frame conversion identical to wrist head-relative conversion.
         pos_ros = (self.BODY_HEAD_TO_ROS_POSITION @ pos_head).astype(np.float64)
         rel_rot = R.from_matrix(relative_joint_matrix[:3, :3])
         ros_rot = R.from_matrix(self.BODY_HEAD_TO_ROS_POSITION) * rel_rot
         quat_ros = ros_rot.as_quat()
+        if pose_role == 'shoulder':
+            offsets = self.shoulder_offsets[side]
+            vr_scale = self.shoulder_vr_scale
+        else:
+            offsets = self.elbow_offsets[side]
+            vr_scale = self.elbow_vr_scale
         self.publish_relative_pose(
             pos_ros,
             quat_ros,
             publisher,
-            vr_scale=self.elbow_vr_scale,
-            x_offset=self.elbow_offsets['x'],
-            y_offset=self.elbow_offsets['y'],
-            z_offset=self.elbow_offsets['z'],
+            vr_scale=vr_scale,
+            x_offset=offsets['x'],
+            y_offset=offsets['y'],
+            z_offset=offsets['z'],
             apply_right_z_flip=False,
-            pose_role='elbow',
+            pose_role=pose_role,
             side=side,
+            stamp=stamp,
         )
 
     def low_pass_filter_pose(self, key, position, quaternion, max_angle_deg=None):
@@ -1510,6 +1744,29 @@ class VRTrajectoryPublisher(Node):
         s1 = sin_theta / sin_theta_0
         return s0 * q0 + s1 * q1
 
+    def _extract_gesture_state(self, hand_state):
+        """Extract hand gesture booleans/values from dict-like/object payload."""
+        if hand_state is None:
+            return None
+        if isinstance(hand_state, dict):
+            return {
+                'pinch': bool(hand_state.get('pinch', False)),
+                'squeeze': bool(hand_state.get('squeeze', False)),
+                'tap': bool(hand_state.get('tap', False)),
+                'pinchValue': float(hand_state.get('pinchValue', 0.0)),
+                'squeezeValue': float(hand_state.get('squeezeValue', 0.0)),
+                'tapValue': float(hand_state.get('tapValue', 0.0)),
+            }
+
+        return {
+            'pinch': bool(getattr(hand_state, 'pinch', False)),
+            'squeeze': bool(getattr(hand_state, 'squeeze', False)),
+            'tap': bool(getattr(hand_state, 'tap', False)),
+            'pinchValue': float(getattr(hand_state, 'pinchValue', 0.0)),
+            'squeezeValue': float(getattr(hand_state, 'squeezeValue', 0.0)),
+            'tapValue': float(getattr(hand_state, 'tapValue', 0.0)),
+        }
+
     def apply_elbow_wrist_safety(self, side, pose_role, position):
         """Clamp wrist-elbow distance to safety limit (wrist has priority)."""
         if pose_role not in ('wrist', 'elbow'):
@@ -1525,6 +1782,56 @@ class VRTrajectoryPublisher(Node):
         if dist > self.max_elbow_wrist_distance and dist > 0.0:
             position = other_pos + delta * (self.max_elbow_wrist_distance / dist)
         return position
+
+    def publish_trajectory_left(
+        self,
+        goal: np.ndarray,
+        duration: float = 0,
+    ) -> None:
+        """Publish a left-hand joint trajectory command."""
+        self._publish_trajectory(
+            self.left_publisher_,
+            self.left_joint_names,
+            goal,
+            duration,
+        )
+
+    def publish_zero_hand_joint_trajectories(self) -> None:
+        """Publish zero joint trajectories to both hand controllers."""
+        left_zero_goal = np.zeros(len(self.left_joint_names), dtype=np.float64)
+        right_zero_goal = np.zeros(len(self.right_joint_names), dtype=np.float64)
+        self.publish_trajectory_left(left_zero_goal, duration=0.0)
+        self.publish_trajectory_right(right_zero_goal, duration=0.0)
+
+    def publish_trajectory_right(
+        self,
+        goal: np.ndarray,
+        duration: float = 0,
+    ) -> None:
+        """Publish a right-hand joint trajectory command."""
+        self._publish_trajectory(
+            self.right_publisher_,
+            self.right_joint_names,
+            goal,
+            duration,
+        )
+
+    def _publish_trajectory(
+        self,
+        publisher,
+        joint_names: Sequence[str],
+        goal: np.ndarray,
+        duration: float,
+    ) -> None:
+        """Build and publish a `JointTrajectory` message."""
+        msg = JointTrajectory()
+        msg.joint_names = list(joint_names)
+        goal_point = JointTrajectoryPoint()
+        goal_point.positions = goal.tolist()
+        goal_point.time_from_start.sec = int(duration)
+        goal_point.time_from_start.nanosec = 0
+        msg.points.append(goal_point)
+        publisher.publish(msg)
 
     def __del__(self):
         try:
