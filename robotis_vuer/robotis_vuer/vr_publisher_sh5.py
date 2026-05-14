@@ -466,6 +466,14 @@ class VRTrajectoryPublisher(Node):
             '/reactivate',
             10
         )
+        self.vr_reactivate_topic = '/vr/reactivate'
+        self.reactivate_override = None
+        self.reactivate_sub = self.create_subscription(
+            Bool,
+            self.vr_reactivate_topic,
+            self.reactivate_callback,
+            10,
+        )
         self.odom_sub = self.create_subscription(
             Odometry, '/odom', self.odom_callback, self.vr_stream_qos
         )
@@ -614,10 +622,30 @@ class VRTrajectoryPublisher(Node):
             f'VR publishing is {vr_status} by default. '
             'Use hand gesture (one pinch + one squeeze for 3s) to toggle.'
         )
+        self.get_logger().info(
+            f'External reactivate override topic: {self.vr_reactivate_topic}'
+        )
 
     def odom_callback(self, msg):
         """Receive robot odometry for base control."""
         self.current_odom = msg
+
+    def reactivate_callback(self, msg):
+        """Apply immediate VR publishing state from /vr/reactivate topic."""
+        new_state = bool(msg.data)
+        # Topic command is immediate, then control returns to internal logic
+        # (gesture toggle can still be used afterwards).
+        self.reactivate_override = None
+        self._set_vr_publishing_enabled(new_state, reset_references=new_state)
+        self._publish_reactivate_state(new_state)
+        state_text = 'ENABLED' if new_state else 'DISABLED'
+        self.get_logger().info(
+            f'[TOPIC] VR publishing set to {state_text}.'
+        )
+
+    def is_vr_publishing_active(self):
+        """Return current VR publishing state."""
+        return bool(self.vr_publishing_enabled)
 
     def _set_vr_publishing_enabled(self, new_state, reset_references=False):
         """Apply VR publishing state and reset references when enabling."""
@@ -656,7 +684,7 @@ class VRTrajectoryPublisher(Node):
 
     def log_status(self):
         """Log current system status for debugging."""
-        vr_status = 'ENABLED' if self.vr_publishing_enabled else 'DISABLED'
+        vr_status = 'ENABLED' if self.is_vr_publishing_active() else 'DISABLED'
         self.get_logger().info(f'Status: VR={vr_status}')
 
     def left_image_callback(self, msg):
@@ -673,7 +701,7 @@ class VRTrajectoryPublisher(Node):
 
     def send_latest_images(self):
         """Timer callback: send latest stereo frames to Vuer at configured fps."""
-        if not self.enable_vr_image or not self.vr_publishing_enabled:
+        if not self.enable_vr_image or not self.is_vr_publishing_active():
             return
         if not self.loop.is_running():
             return
@@ -1236,7 +1264,7 @@ class VRTrajectoryPublisher(Node):
         if self.gesture_combo_hold_start_time is None:
             self.gesture_combo_hold_start_time = now_sec
             self.gesture_countdown_last_logged_sec = None
-            target_state = 'ENABLE' if not self.vr_publishing_enabled else 'PAUSE'
+            target_state = 'ENABLE' if not self.is_vr_publishing_active() else 'PAUSE'
             self.get_logger().info(
                 f'[GESTURE] Toggle detected. Hold for 3.0s to {target_state} VR teleop.'
             )
@@ -1259,7 +1287,7 @@ class VRTrajectoryPublisher(Node):
         if held_sec < self.gesture_hold_duration_sec or self.gesture_toggle_latched:
             return
 
-        new_state = not self.vr_publishing_enabled
+        new_state = not self.is_vr_publishing_active()
         self._set_vr_publishing_enabled(new_state, reset_references=new_state)
         self._publish_reactivate_state(new_state)
         status_text = 'activated' if new_state else 'disabled'
@@ -1309,7 +1337,7 @@ class VRTrajectoryPublisher(Node):
         try:
             if not rclpy.ok():
                 return
-            if not self.vr_publishing_enabled:
+            if not self.is_vr_publishing_active():
                 self.publish_zero_hand_joint_trajectories()
                 return
 

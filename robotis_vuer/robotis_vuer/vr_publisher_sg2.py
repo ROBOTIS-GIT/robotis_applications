@@ -95,7 +95,8 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('goal_pose_squeeze_threshold', 0.8)
 
         # VR publishing control flag
-        self.vr_publishing_enabled = True  # Default: disabled
+        self.vr_publishing_enabled = True  # Existing behavior
+        self.reactivate_override = None
 
         # VR Server setup
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -179,6 +180,14 @@ class VRTrajectoryPublisher(Node):
         )
         self.right_shoulder_rviz_pub = self.create_publisher(
             PoseStamped, '/r_shoulder_pose', self.vr_stream_qos
+        )
+
+        self.node_reactivate_topic = '/vr/reactivate'
+        self.reactivate_sub = self.create_subscription(
+            Bool,
+            self.node_reactivate_topic,
+            self.reactivate_callback,
+            10
         )
 
         # Reactivate topic publisher
@@ -402,6 +411,9 @@ class VRTrajectoryPublisher(Node):
             'Send /vr_control/toggle message (True=enable, False=disable).'
         )
         self.get_logger().info(
+            f'External reactivate override topic: {self.node_reactivate_topic}'
+        )
+        self.get_logger().info(
             f'Stick swap config: left_stick_swap_xy={self.left_stick_swap_xy}, '
             f'right_stick_swap_xy={self.right_stick_swap_xy}'
         )
@@ -468,6 +480,23 @@ class VRTrajectoryPublisher(Node):
             self.left_squeeze_value >= self.goal_pose_squeeze_threshold
             and self.right_squeeze_value >= self.goal_pose_squeeze_threshold
         )
+
+    def reactivate_callback(self, msg):
+        """Apply immediate VR publishing state from /vr/reactivate topic."""
+        new_state = bool(msg.data)
+        # Topic command is immediate, then control returns to internal logic
+        # (squeeze/buttons can still be used afterwards).
+        self.reactivate_override = None
+        self.vr_publishing_enabled = new_state
+        self._publish_reactivate(new_state, reason='node override', force_log=True)
+        state_text = 'ENABLED' if new_state else 'DISABLED'
+        self.get_logger().info(
+            f'[TOPIC] VR publishing set to {state_text}.'
+        )
+
+    def is_vr_publishing_active(self):
+        """Return current VR publishing state."""
+        return bool(self.vr_publishing_enabled)
 
     def apply_deadzone(self, value):
         """Apply deadzone to thumbstick value."""
@@ -1040,7 +1069,7 @@ class VRTrajectoryPublisher(Node):
     def publish_cmd_vel_from_thumbstick(self, left_thumbstick_value, right_thumbstick_value):
         """Publish base cmd_vel from thumbstick values."""
         try:
-            if not self.vr_publishing_enabled:
+            if not self.is_vr_publishing_active():
                 return
 
             left_x_deadzone = self.apply_deadzone(float(left_thumbstick_value[0]))
@@ -1190,7 +1219,7 @@ class VRTrajectoryPublisher(Node):
     async def on_body_tracking_move(self, event, session):
         """Handle body tracking events and update head transform for controller-relative pose."""
         try:
-            if not self.vr_publishing_enabled:
+            if not self.is_vr_publishing_active():
                 return
             if not isinstance(event.value, dict):
                 return
@@ -1245,7 +1274,7 @@ class VRTrajectoryPublisher(Node):
     async def on_controller_move(self, event, session):
         """Handle Meta Quest controller events (CONTROLLER_MOVE)."""
         try:
-            if not self.vr_publishing_enabled:
+            if not self.is_vr_publishing_active():
                 return
             if not isinstance(event.value, dict):
                 return
