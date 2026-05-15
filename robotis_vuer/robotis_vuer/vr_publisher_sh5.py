@@ -634,13 +634,12 @@ class VRTrajectoryPublisher(Node):
         """Apply immediate VR publishing state from /vr/reactivate topic."""
         new_state = bool(msg.data)
         # Topic command is immediate, then control returns to internal logic
-        # (gesture toggle can still be used afterwards).
         self.reactivate_override = None
         self._set_vr_publishing_enabled(new_state, reset_references=new_state)
         self._publish_reactivate_state(new_state)
         state_text = 'ENABLED' if new_state else 'DISABLED'
         self.get_logger().info(
-            f'[TOPIC] VR publishing set to {state_text}.'
+            f'[OVERRIDE] VR publishing set to {state_text}.'
         )
 
     def is_vr_publishing_active(self):
