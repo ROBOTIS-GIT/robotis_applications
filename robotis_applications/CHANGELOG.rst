@@ -2,6 +2,11 @@
 Changelog for package robotis_applications
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+0.1.1 (2026-05-15)
+------------------
+* Added override topic for enabling/disabling VR publishers
+* Contributors: Yeonguk Kim
+
 0.1.0 (2026-05-04)
 ------------------
 * Applied lift joystick deadzone and base joystick scaling
