@@ -467,7 +467,6 @@ class VRTrajectoryPublisher(Node):
             10
         )
         self.vr_reactivate_topic = '/vr/reactivate'
-        self.reactivate_override = None
         self.reactivate_sub = self.create_subscription(
             Bool,
             self.vr_reactivate_topic,
@@ -634,7 +633,6 @@ class VRTrajectoryPublisher(Node):
         """Apply immediate VR publishing state from /vr/reactivate topic."""
         new_state = bool(msg.data)
         # Topic command is immediate, then control returns to internal logic
-        self.reactivate_override = None
         self._set_vr_publishing_enabled(new_state, reset_references=new_state)
         self._publish_reactivate_state(new_state)
         state_text = 'ENABLED' if new_state else 'DISABLED'
@@ -648,10 +646,12 @@ class VRTrajectoryPublisher(Node):
 
     def _set_vr_publishing_enabled(self, new_state, reset_references=False):
         """Apply VR publishing state and reset references when enabling."""
+        previous_state = bool(self.vr_publishing_enabled)
         new_state = bool(new_state)
         self.vr_publishing_enabled = new_state
 
-        if self.vr_publishing_enabled and reset_references:
+        # Reset references only on rising edge (disabled -> enabled).
+        if self.vr_publishing_enabled and reset_references and not previous_state:
             self.start_poses_left = False
             self.start_poses_right = False
             self.prev_poses_left.fill(0.0)
@@ -679,7 +679,21 @@ class VRTrajectoryPublisher(Node):
                 self.initial_odom_yaw = None
                 # self.get_logger().warn('VR control enabled but odom not available yet')
         elif not self.vr_publishing_enabled:
+            self._publish_zero_cmd_vel()
             return
+
+    def _publish_zero_cmd_vel(self):
+        """Publish an explicit zero cmd_vel to stop base motion."""
+        if not rclpy.ok():
+            return
+        twist_msg = Twist()
+        twist_msg.linear.x = 0.0
+        twist_msg.linear.y = 0.0
+        twist_msg.linear.z = 0.0
+        twist_msg.angular.x = 0.0
+        twist_msg.angular.y = 0.0
+        twist_msg.angular.z = 0.0
+        self.cmd_vel_pub.publish(twist_msg)
 
     def log_status(self):
         """Log current system status for debugging."""
