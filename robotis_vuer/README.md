@@ -8,7 +8,7 @@
 |-----------|-------------|
 | **Headset** | Meta Quest 3 |
 | **VR client** | [Vuer](https://github.com/vuer-ai/vuer)-based web app (WebXR). On the headset, open the page in the browser (or built-in browser) to start the VR session. |
-| **Vuer version** | **v0.1.6** (version used and validated with AI Worker). Other versions may behave differently. [Official docs](https://docs.vuer.ai) |
+| **Vuer version** | **v0.1.6-robotis** (version used and validated with AI Worker). Other versions may behave differently. [Official docs](https://docs.vuer.ai) |
 | **Robot / PC** | ROS 2 nodes and applications connect to the Vuer server over **WebSocket**, exchanging pose, visualization, and control data. |
 
 In short: **Quest 3 → (HTTPS/WSS) → Vuer** is the user-facing path, and **Vuer ↔ ROS 2** carries robot control and state.
@@ -20,6 +20,6 @@ In short: **Quest 3 → (HTTPS/WSS) → Vuer** is the user-facing path, and **Vu
 - **Role**: Acts as the in-browser VR viewer and a **bidirectional bridge** to the robot PC. A typical pattern is ROS 2 nodes running alongside the Vuer server, linked via **WebSocket (`wss://`)**.
 - **Why HTTPS/WSS**: WebXR and device APIs expect a **secure context**, so setups often use **HTTPS** and a **secure WebSocket** even on a local network.
 - **Robotics**: Suited to robot models (e.g. URDF), live poses and sensor data, and teleoperation-style UIs. AI Worker aligns Quest 3 visuals and input with ROS 2 logic on this path.
-- **Version in AI Worker**: Packages and Docker images target **Vuer v0.1.6**. Newer releases may change APIs or behavior; when debugging, compare against v0.1.6.
+- **Version in AI Worker**: Packages and Docker images target **Vuer v0.1.6-robotis**. Newer releases may change APIs or behavior; when debugging, compare against v0.1.6-robotis.
 
 Official docs: [docs.vuer.ai](https://docs.vuer.ai) (may reflect newer releases than v0.1.6) · Source: [github.com/vuer-ai/vuer](https://github.com/vuer-ai/vuer)
