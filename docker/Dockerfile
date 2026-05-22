@@ -32,7 +32,7 @@ COPY gen_cert.sh /root/gen_cert.sh
 RUN chmod +x /root/gen_cert.sh
 
 RUN cd /root && \
-    git clone -b v0.1.7 https://github.com/ROBOTIS-GIT/vuer.git && \
+    git clone -b v0.1.6-robotis https://github.com/ROBOTIS-GIT/vuer.git && \
     pip3 install --no-cache-dir -e '/root/vuer[all]'
 
 RUN python3 -c "from vuer import Vuer"
