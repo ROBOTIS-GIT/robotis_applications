@@ -2,6 +2,11 @@
 Changelog for package robotis_applications
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+0.1.2 (2026-05-22)
+------------------
+* Modified dockerfile to install updated vuer package
+* Contributors: Yeonguk Kim
+
 0.1.1 (2026-05-15)
 ------------------
 * Added override topic for enabling/disabling VR publishers
