@@ -2,6 +2,10 @@
 Changelog for package robotis_vuer
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+0.1.2 (2026-05-22)
+------------------
+* None
+
 0.1.1 (2026-05-15)
 ------------------
 * Added override topic for enabling/disabling VR publishers
