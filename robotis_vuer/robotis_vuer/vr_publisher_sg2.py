@@ -93,6 +93,7 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('right_shoulder_offset_y', 0.0)
         self.declare_parameter('right_shoulder_offset_z', EYE_NECK_OFFSET_Z)
         self.declare_parameter('goal_pose_squeeze_threshold', 0.8)
+        self.declare_parameter('mirror_mode', False)
 
         # VR publishing control flag
         self.vr_publishing_enabled = True  # Default: disabled
@@ -331,6 +332,7 @@ class VRTrajectoryPublisher(Node):
             self.get_parameter('right_gripper_max_position').value
         )
         self.goal_pose_position_scale = float(self.get_parameter('goal_pose_position_scale').value)
+        self.mirror_mode = bool(self.get_parameter('mirror_mode').value)
         if not np.isfinite(self.goal_pose_position_scale) or self.goal_pose_position_scale <= 0.0:
             self.get_logger().warn(
                 f'Invalid goal_pose_position_scale='
@@ -443,6 +445,7 @@ class VRTrajectoryPublisher(Node):
             f'Lift->arm Z coupling: enabled={self.apply_lift_to_arm_z}, '
             f'scale={self.lift_to_arm_z_scale:.3f}'
         )
+        self.get_logger().info(f'Mirror mode: {self.mirror_mode}')
 
     def is_valid_float(self, value):
         """Check if value is valid float (excluding NaN, inf)."""
@@ -527,6 +530,30 @@ class VRTrajectoryPublisher(Node):
         safe_z = float(z) if self.is_valid_float(z) else 0.0
         safe_w = float(w) if self.is_valid_float(w) else 1.0
         return Quaternion(x=safe_x, y=safe_y, z=safe_z, w=safe_w)
+
+    def mirror_position_in_base(self, position):
+        mirrored = np.asarray(position, dtype=np.float64).copy()
+        mirrored[1] = -mirrored[1]
+        return mirrored
+
+    def mirror_quaternion_in_base(self, quaternion):
+        q = np.asarray(quaternion, dtype=np.float64)
+        norm = np.linalg.norm(q)
+        if norm <= 0.0 or not np.all(np.isfinite(q)):
+            return np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+        q = q / norm
+        mirrored = np.array([-q[0], q[1], -q[2], q[3]], dtype=np.float64)
+        mirrored_norm = np.linalg.norm(mirrored)
+        return mirrored / mirrored_norm if mirrored_norm > 0.0 else np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+
+    def get_output_side(self, side):
+        if not self.mirror_mode:
+            return side
+        if side == 'left':
+            return 'right'
+        if side == 'right':
+            return 'left'
+        return side
 
     def matrix_to_pose(self, mat):
         """Convert 4x4 transformation matrix to (position, quaternion)."""
@@ -667,14 +694,14 @@ class VRTrajectoryPublisher(Node):
         if self._should_publish_pose_pair('left_wrist', 'right_wrist', now_sec):
             self._publish_wrist_pose_from_matrix(
                 self.left_controller_matrix,
-                'left',
+                self.get_output_side('left'),
                 stamp=batch_stamp,
                 now_sec=now_sec,
                 skip_rate_limit=True,
             )
             self._publish_wrist_pose_from_matrix(
                 self.right_controller_matrix,
-                'right',
+                self.get_output_side('right'),
                 stamp=batch_stamp,
                 now_sec=now_sec,
                 skip_rate_limit=True,
@@ -749,6 +776,9 @@ class VRTrajectoryPublisher(Node):
                 side, base_position, relative_rot_ros
             )
             arm_quaternion = base_rotation.as_quat()  # [x, y, z, w]
+            if self.mirror_mode and side in ('left', 'right'):
+                base_position = self.mirror_position_in_base(base_position)
+                arm_quaternion = self.mirror_quaternion_in_base(arm_quaternion)
 
             wrist_pose = PoseStamped()
             wrist_pose.header.stamp = (
@@ -802,6 +832,9 @@ class VRTrajectoryPublisher(Node):
             side_key = side if side in ('left', 'right') else 'left'
             base_position = base_position + self.elbow_position_offsets[side_key]
             elbow_quaternion = elbow_rotation.as_quat()
+            if self.mirror_mode and side in ('left', 'right'):
+                base_position = self.mirror_position_in_base(base_position)
+                elbow_quaternion = self.mirror_quaternion_in_base(elbow_quaternion)
 
             elbow_pose = PoseStamped()
             elbow_pose.header.stamp = (
@@ -815,9 +848,10 @@ class VRTrajectoryPublisher(Node):
                 elbow_quaternion[0], elbow_quaternion[1], elbow_quaternion[2], elbow_quaternion[3]
             )
 
-            if side == 'left':
+            output_side = self.get_output_side(side)
+            if output_side == 'left':
                 self.left_elbow_rviz_pub.publish(elbow_pose)
-            elif side == 'right':
+            elif output_side == 'right':
                 self.right_elbow_rviz_pub.publish(elbow_pose)
             self.last_pose_publish_sec[pose_key] = now_sec
 
@@ -855,6 +889,9 @@ class VRTrajectoryPublisher(Node):
             side_key = side if side in ('left', 'right') else 'left'
             base_position = base_position + self.shoulder_position_offsets[side_key]
             shoulder_quaternion = shoulder_rotation.as_quat()
+            if self.mirror_mode and side in ('left', 'right'):
+                base_position = self.mirror_position_in_base(base_position)
+                shoulder_quaternion = self.mirror_quaternion_in_base(shoulder_quaternion)
 
             shoulder_pose = PoseStamped()
             shoulder_pose.header.stamp = (
@@ -871,9 +908,10 @@ class VRTrajectoryPublisher(Node):
                 shoulder_quaternion[3],
             )
 
-            if side == 'left':
+            output_side = self.get_output_side(side)
+            if output_side == 'left':
                 self.left_shoulder_rviz_pub.publish(shoulder_pose)
-            elif side == 'right':
+            elif output_side == 'right':
                 self.right_shoulder_rviz_pub.publish(shoulder_pose)
             self.last_pose_publish_sec[pose_key] = now_sec
 
@@ -1116,6 +1154,11 @@ class VRTrajectoryPublisher(Node):
         base_position, camera_relative_rotation = self.apply_wrist_offsets(
             hand_name, base_position, camera_relative_rotation
         )
+        if self.mirror_mode and hand_name in ('left', 'right'):
+            base_position = self.mirror_position_in_base(base_position)
+            camera_relative_rotation = R.from_quat(
+                self.mirror_quaternion_in_base(camera_relative_rotation.as_quat())
+            )
         arm_quaternion = camera_relative_rotation.as_quat()  # [x, y, z, w]
 
         # Create target pose message
