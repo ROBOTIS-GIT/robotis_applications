@@ -17,6 +17,7 @@
 # Authors: Wonho Yun, Hyunwoo Nam, Yeonguk Kim
 
 import asyncio
+from io import BytesIO
 import math
 import os
 import socket
@@ -28,6 +29,7 @@ from geometry_msgs.msg import Point, Point32, PoseStamped, Quaternion, Twist
 from nav_msgs.msg import Odometry
 import nest_asyncio
 import numpy as np
+from PIL import Image as PILImage
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -189,7 +191,7 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('enable_lift_publishing', False)
         self.declare_parameter('enable_head_publishing', False)
         self.declare_parameter('enable_base_publishing', False)
-        self.declare_parameter('enable_vr_image', False)
+        self.declare_parameter('enable_vr_image', True)
 
         self.declare_parameter('base_linear_kp', 1.7)
         self.declare_parameter('base_angular_kp', 2.0)
@@ -261,16 +263,14 @@ class VRTrajectoryPublisher(Node):
         if self.base_angular_deadzone < 0.0:
             self.base_angular_deadzone = 0.05
 
-        # VR image in headset (stereo background from camera topics)
+        # VR image in headset (single robot camera HUD) Modify accordingly
         self.declare_parameter(
-            'vr_image_left_topic',
-            '/zed/zed_node/left/image_rect_color/compressed'
-        )
-        self.declare_parameter(
-            'vr_image_right_topic',
-            '/zed/zed_node/right/image_rect_color/compressed'
+            'vr_image_topic',
+            '/camera_left/camera_left/color/image_rect_raw/compressed'
         )
         self.declare_parameter('vr_image_fps', 15.0)
+        self.declare_parameter('vr_image_quality', 20)
+        self.declare_parameter('vr_image_max_width', 640)
 
         # Wrist/elbow/shoulder position offsets (head-relative, ROS frame: X forward, Y left, Z up)
         self.declare_parameter('left_wrist_offset_x', 0.0)
@@ -296,15 +296,21 @@ class VRTrajectoryPublisher(Node):
             self.get_parameter('enable_vr_image')
             .get_parameter_value().bool_value
         )
-        self.vr_image_left_topic = (
-            self.get_parameter('vr_image_left_topic')
-            .get_parameter_value().string_value
-        )
-        self.vr_image_right_topic = (
-            self.get_parameter('vr_image_right_topic')
+        self.vr_image_topic = (
+            self.get_parameter('vr_image_topic')
             .get_parameter_value().string_value
         )
         self.vr_image_fps = self.get_parameter('vr_image_fps').get_parameter_value().double_value
+        self.vr_image_quality = (
+            self.get_parameter('vr_image_quality')
+            .get_parameter_value().integer_value
+        )
+        self.vr_image_max_width = (
+            self.get_parameter('vr_image_max_width')
+            .get_parameter_value().integer_value
+        )
+        self.vr_image_quality = max(1, min(100, int(self.vr_image_quality)))
+        self.vr_image_max_width = max(0, int(self.vr_image_max_width))
         self.wrist_offsets = {
             'left': {
                 'x': self.get_parameter('left_wrist_offset_x').get_parameter_value().double_value,
@@ -477,28 +483,23 @@ class VRTrajectoryPublisher(Node):
             Odometry, '/odom', self.odom_callback, self.vr_stream_qos
         )
 
-        # VR image (stereo background): optional, enabled by enable_vr_image
+        # VR image HUD: optional, enabled by enable_vr_image
         self.current_session = None
-        self.latest_left_bytes = None
-        self.latest_right_bytes = None
+        self.latest_image_bytes = None
+        self.vr_image_update_future = None
         if self.enable_vr_image:
-            self.left_image_sub = self.create_subscription(
+            self.image_sub = self.create_subscription(
                 CompressedImage,
-                self.vr_image_left_topic,
-                self.left_image_callback,
-                self.vr_stream_qos,
-            )
-            self.right_image_sub = self.create_subscription(
-                CompressedImage,
-                self.vr_image_right_topic,
-                self.right_image_callback,
+                self.vr_image_topic,
+                self.image_callback,
                 self.vr_stream_qos,
             )
             period = 1.0 / self.vr_image_fps if self.vr_image_fps > 0 else 1.0 / 15.0
-            self.image_send_timer = self.create_timer(period, self.send_latest_images)
+            self.image_send_timer = self.create_timer(period, self.send_latest_image)
             self.get_logger().info(
-                f'VR image enabled: left={self.vr_image_left_topic}, '
-                f'right={self.vr_image_right_topic}, {self.vr_image_fps} fps'
+                f'VR image HUD enabled: topic={self.vr_image_topic}, '
+                f'{self.vr_image_fps} fps, quality={self.vr_image_quality}, '
+                f'max_width={self.vr_image_max_width}'
             )
 
         self.required_vr_frames = [0,
@@ -700,54 +701,64 @@ class VRTrajectoryPublisher(Node):
         vr_status = 'ENABLED' if self.is_vr_publishing_active() else 'DISABLED'
         self.get_logger().info(f'Status: VR={vr_status}')
 
-    def left_image_callback(self, msg):
-        """Store latest left eye image for VR background (only when enable_vr_image)."""
+    def image_callback(self, msg):
+        """Store latest robot camera image for VR HUD (only when enable_vr_image)."""
         if not self.enable_vr_image:
             return
-        self.latest_left_bytes = bytes(msg.data)
+        self.latest_image_bytes = bytes(msg.data)
 
-    def right_image_callback(self, msg):
-        """Store latest right eye image for VR background (only when enable_vr_image)."""
-        if not self.enable_vr_image:
-            return
-        self.latest_right_bytes = bytes(msg.data)
-
-    def send_latest_images(self):
-        """Timer callback: send latest stereo frames to Vuer at configured fps."""
+    def send_latest_image(self):
+        """Timer callback: send the latest camera frame to Vuer at configured fps."""
         if not self.enable_vr_image or not self.is_vr_publishing_active():
             return
         if not self.loop.is_running():
             return
-        if self.latest_left_bytes is not None:
-            img = self.latest_left_bytes
-            self.latest_left_bytes = None
-            asyncio.run_coroutine_threadsafe(
-                self.update_vuer_background(img, key='bg_left', layer=1),
-                self.loop,
-            )
-        if self.latest_right_bytes is not None:
-            img = self.latest_right_bytes
-            self.latest_right_bytes = None
-            asyncio.run_coroutine_threadsafe(
-                self.update_vuer_background(img, key='bg_right', layer=2),
-                self.loop,
-            )
+        if self.vr_image_update_future is not None and not self.vr_image_update_future.done():
+            return
+        if self.latest_image_bytes is None:
+            return
+        img = self.latest_image_bytes
+        self.latest_image_bytes = None
+        frame = self.prepare_vr_hud_frame(img)
+        if frame is None:
+            return
+        self.vr_image_update_future = asyncio.run_coroutine_threadsafe(
+            self.update_vuer_hud(frame),
+            self.loop,
+        )
 
-    async def update_vuer_background(self, img_bytes, key, layer):
-        """Update Vuer session background image (stereo: layer 1=left, 2=right)."""
+    def prepare_vr_hud_frame(self, img_bytes):
+        """Decode and downscale the latest compressed ROS image for HUD streaming."""
+        try:
+            with PILImage.open(BytesIO(img_bytes)) as image:
+                image = image.convert('RGB')
+                if self.vr_image_max_width > 0 and image.width > self.vr_image_max_width:
+                    height = max(1, int(image.height * self.vr_image_max_width / image.width))
+                    image = image.resize(
+                        (self.vr_image_max_width, height),
+                        PILImage.Resampling.BILINEAR,
+                    )
+                return np.asarray(image, dtype=np.uint8)
+        except Exception as e:
+            self.get_logger().warn(f'Failed to decode VR HUD image: {e}')
+            return None
+
+    async def update_vuer_hud(self, frame):
+        """Update the fixed camera-facing Vuer HUD image."""
         try:
             if self.current_session is None:
                 return
             await self.current_session.upsert(
                 ImageBackground(
-                    src=img_bytes,
-                    key=key,
-                    layers=layer,
-                    distanceToCamera=2.0,
+                    frame,
+                    key='vr_camera_hud',
+                    fixed=True,
+                    distanceToCamera=1.0,
                     aspect=1.77,
-                    height=2.5,
-                    position=[0, 0, -2.0],
+                    height=1.0,
+                    position=[0, 0, -3.0],
                     format='jpeg',
+                    quality=self.vr_image_quality,
                     interpolate=True,
                 ),
                 to='bgChildren',
