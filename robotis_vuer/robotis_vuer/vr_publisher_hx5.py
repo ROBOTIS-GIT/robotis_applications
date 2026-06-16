@@ -97,7 +97,7 @@ class VRTrajectoryPublisher(Node):
         # Reactivate topic
         self.reactivate_sub = self.create_subscription(
             Bool,
-            '/vr/reactivate',
+            '/reactivate',
             self.reactivate_callback,
             10
         )
