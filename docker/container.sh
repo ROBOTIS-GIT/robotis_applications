@@ -83,6 +83,11 @@ build_container() {
 start_container() {
     setup_x11
     echo "Starting robotis-applications container (TARGET_ARCH=${TARGET_ARCH})..."
+
+    ### rmw_zenoh notice (remove later)
+    print_rmw_zenoh_notice
+    ### rmw_zenoh notice (remove later)
+
     compose_cmd up -d "$@"
     ensure_certificates
 }
@@ -113,6 +118,11 @@ enter_container() {
         echo "Hint: run '$0 start' first."
         exit 1
     fi
+
+    ### rmw_zenoh notice (remove later)
+    print_rmw_zenoh_notice
+    ### rmw_zenoh notice (remove later)
+
     docker exec -it "${CONTAINER_NAME}" bash
 }
 
@@ -139,6 +149,23 @@ status_container() {
 logs_container() {
     compose_cmd logs -f --tail=200
 }
+
+### rmw_zenoh notice (remove later)
+print_rmw_zenoh_notice() {
+    W=52
+    BAR=$(printf '%*s' $W '' | tr ' ' '=')
+    LINE1="Since v1.0.0, rmw_zenoh_cpp is the default RMW."
+    LINE2="RMW_IMPLEMENTATION is set in ~/.bashrc inside the"
+    LINE3="container. Override with: export RMW_IMPLEMENTATION=..."
+    echo ""
+    echo "  +${BAR}+"
+    printf "  |  %-$((W-2))s|\n" "$LINE1"
+    printf "  |  %-$((W-2))s|\n" "$LINE2"
+    printf "  |  %-$((W-2))s|\n" "$LINE3"
+    echo "  +${BAR}+"
+    echo ""
+}
+### rmw_zenoh notice (remove later)
 
 case "${1:-help}" in
     "help") show_help ;;

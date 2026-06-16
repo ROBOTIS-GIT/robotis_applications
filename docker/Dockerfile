@@ -8,6 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONPATH=/root/vuer/src
 
 RUN apt-get update && \
+    apt-get install -y ros-${ROS_DISTRO}-rmw-zenoh-cpp && \
     apt-get install -y --no-install-recommends \
     git \
     curl \
@@ -59,6 +60,7 @@ RUN bash -c "source /opt/ros/${ROS_DISTRO}/setup.bash && \
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc && \
     echo "source ${COLCON_WS}/install/setup.bash" >> /root/.bashrc && \
     echo "alias cb='colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release'" >> /root/.bashrc && \
+    echo "export RMW_IMPLEMENTATION=rmw_zenoh_cpp" >> /root/.bashrc && \
     echo "export ROS_DOMAIN_ID=30" >> /root/.bashrc && \
     echo "alias vr='ros2 launch robotis_vuer vr.launch.py'" >> /root/.bashrc
 
