@@ -2,6 +2,11 @@
 Changelog for package robotis_vuer
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.0.0 (2026-06-17)
+------------------
+* Modified hx5 publisher reactivation topic name
+* Contributors: Yeonguk Kim
+
 0.1.2 (2026-05-22)
 ------------------
 * None

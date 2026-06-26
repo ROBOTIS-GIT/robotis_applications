@@ -2,6 +2,12 @@
 Changelog for package robotis_applications
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.0.0 (2026-06-17)
+------------------
+* Set rmw_zenoh_cpp as the default RMW in Docker images
+* Modified hx5 publisher reactivation topic name
+* Contributors: Yeonguk Kim
+
 0.1.2 (2026-05-22)
 ------------------
 * Modified dockerfile to install updated vuer package
