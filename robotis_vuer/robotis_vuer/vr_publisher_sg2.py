@@ -349,6 +349,7 @@ class VRTrajectoryPublisher(Node):
             'left_shoulder': 0.0,
             'right_shoulder': 0.0,
         }
+        self.pose_quaternion_refs = {}
 
         # Thumbstick mode:
         # True: lift + head joints, False: lift + cmd_vel
@@ -528,6 +529,25 @@ class VRTrajectoryPublisher(Node):
         safe_w = float(w) if self.is_valid_float(w) else 1.0
         return Quaternion(x=safe_x, y=safe_y, z=safe_z, w=safe_w)
 
+    def normalize_pose_quaternion_sign(self, pose_key, quaternion):
+        """Normalize quaternion and keep a stable sign for each published pose topic."""
+        quat = np.asarray(quaternion, dtype=np.float64)
+        quat_norm = np.linalg.norm(quat)
+        if not np.isfinite(quat_norm) or quat_norm <= 0.0:
+            quat = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+        else:
+            quat = quat / quat_norm
+
+        prev_quat = self.pose_quaternion_refs.get(pose_key)
+        if prev_quat is not None:
+            if np.dot(prev_quat, quat) < 0.0:
+                quat = -quat
+        elif quat[3] < 0.0:
+            quat = -quat
+
+        self.pose_quaternion_refs[pose_key] = quat
+        return quat
+
     def matrix_to_pose(self, mat):
         """Convert 4x4 transformation matrix to (position, quaternion)."""
         pos = mat[:3, 3]
@@ -656,6 +676,7 @@ class VRTrajectoryPublisher(Node):
         if not self.can_publish_goal_pose():
             self.pending_body_pose_frame = False
             self.pending_controller_pose_frame = False
+            self.pose_quaternion_refs.clear()
             return
         if not self.pending_body_pose_frame or not self.pending_controller_pose_frame:
             return
@@ -749,6 +770,9 @@ class VRTrajectoryPublisher(Node):
                 side, base_position, relative_rot_ros
             )
             arm_quaternion = base_rotation.as_quat()  # [x, y, z, w]
+            arm_quaternion = self.normalize_pose_quaternion_sign(
+                pose_key, arm_quaternion
+            )
 
             wrist_pose = PoseStamped()
             wrist_pose.header.stamp = (
@@ -802,6 +826,9 @@ class VRTrajectoryPublisher(Node):
             side_key = side if side in ('left', 'right') else 'left'
             base_position = base_position + self.elbow_position_offsets[side_key]
             elbow_quaternion = elbow_rotation.as_quat()
+            elbow_quaternion = self.normalize_pose_quaternion_sign(
+                pose_key, elbow_quaternion
+            )
 
             elbow_pose = PoseStamped()
             elbow_pose.header.stamp = (
@@ -855,6 +882,9 @@ class VRTrajectoryPublisher(Node):
             side_key = side if side in ('left', 'right') else 'left'
             base_position = base_position + self.shoulder_position_offsets[side_key]
             shoulder_quaternion = shoulder_rotation.as_quat()
+            shoulder_quaternion = self.normalize_pose_quaternion_sign(
+                pose_key, shoulder_quaternion
+            )
 
             shoulder_pose = PoseStamped()
             shoulder_pose.header.stamp = (

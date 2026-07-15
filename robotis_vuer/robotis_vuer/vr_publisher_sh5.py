@@ -656,6 +656,7 @@ class VRTrajectoryPublisher(Node):
             self.start_poses_right = False
             self.prev_poses_left.fill(0.0)
             self.prev_poses_right.fill(0.0)
+            self.pose_filters.clear()
             self.initial_camera_height = None
             self.initial_camera_position = None
             self.initial_camera_yaw = None
@@ -1731,6 +1732,8 @@ class VRTrajectoryPublisher(Node):
         else:
             quat = quat / quat_norm
         if key not in self.pose_filters:
+            if quat[3] < 0.0:
+                quat = -quat
             self.pose_filters[key] = {
                 'pos': np.array(position, dtype=np.float64),
                 'quat': quat,
