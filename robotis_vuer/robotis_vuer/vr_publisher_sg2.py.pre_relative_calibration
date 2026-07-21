@@ -27,14 +27,12 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from rclpy.time import Time
 from scipy.spatial.transform import Rotation as R
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Float32
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-from tf2_ros import Buffer, TransformException, TransformListener
 from vuer import Vuer
-from vuer.schemas import Body, Gripper, MotionControllers, Scene
+from vuer.schemas import Body, MotionControllers, Scene
 
 # Allow nested asyncio execution
 nest_asyncio.apply()
@@ -95,11 +93,6 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('right_shoulder_offset_y', 0.0)
         self.declare_parameter('right_shoulder_offset_z', EYE_NECK_OFFSET_Z)
         self.declare_parameter('goal_pose_squeeze_threshold', 0.8)
-        self.declare_parameter('guide_base_frame', 'base_link')
-        self.declare_parameter('left_wrist_tf_frame', 'arm_l_link7')
-        self.declare_parameter('right_wrist_tf_frame', 'arm_r_link7')
-        self.declare_parameter('guide_tf_hz', 30.0)
-        self.declare_parameter('guide_forward_offset_m', 0.45)
 
         # VR publishing control flag
         self.vr_publishing_enabled = True  # Default: disabled
@@ -202,28 +195,6 @@ class VRTrajectoryPublisher(Node):
             self.joint_states_callback,
             self.vr_stream_qos
         )
-        self.robot_wrist_pose = {'left': None, 'right': None}
-        self.robot_wrist_pose_logged = {'left': False, 'right': False}
-        self.guide_transform_logged = {'left': False, 'right': False}
-        self.guide_base_frame = str(self.get_parameter('guide_base_frame').value)
-        self.wrist_tf_frames = {
-            'left': str(self.get_parameter('left_wrist_tf_frame').value),
-            'right': str(self.get_parameter('right_wrist_tf_frame').value),
-        }
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
-        guide_tf_hz = float(self.get_parameter('guide_tf_hz').value)
-        self.guide_forward_offset_m = float(
-            self.get_parameter('guide_forward_offset_m').value
-        )
-        guide_tf_period = 1.0 / guide_tf_hz if guide_tf_hz > 0.0 else 1.0 / 30.0
-        self.guide_tf_warn_time = {'left': 0.0, 'right': 0.0}
-        self.guide_tf_timer = self.create_timer(
-            guide_tf_period, self._update_robot_wrist_poses_from_tf
-        )
-        self.relative_calibrated = False
-        self.calibration_input = {'left': {}, 'right': {}}
-        self.calibration_anchor = {'left': {}, 'right': {}}
 
         # VR data storage
         self.left_controller_matrix = None
@@ -243,8 +214,6 @@ class VRTrajectoryPublisher(Node):
         )
         self.head_transform_matrix = np.eye(4)
         self.head_inverse_matrix = np.eye(4)
-        self.calibration_head_inverse_matrix = None
-        self.guide_head_anchor_matrix = None
         self.vr_head_to_ros_rot = R.from_matrix(VR_HEAD_TO_ROS)
         self.camera_to_base_offset = np.array([
             0.0 - 0.0238122 - 0.040 - 0.049483 - 0.0055,  # x: -0.1187952
@@ -533,145 +502,6 @@ class VRTrajectoryPublisher(Node):
             idx = msg.name.index('head_joint2')
             self.head_joint2_current_position = msg.position[idx]
 
-    def _update_robot_wrist_poses_from_tf(self):
-        """Continuously cache follower wrist transforms, independent of controller state."""
-        for side, child_frame in self.wrist_tf_frames.items():
-            try:
-                transform = self.tf_buffer.lookup_transform(
-                    self.guide_base_frame, child_frame, Time()
-                )
-            except TransformException as exc:
-                now_sec = self.get_clock().now().nanoseconds / 1e9
-                if now_sec - self.guide_tf_warn_time[side] >= 5.0:
-                    self.get_logger().warn(
-                        f'[VR GUIDE] Waiting for TF {self.guide_base_frame} -> '
-                        f'{child_frame}: {exc}'
-                    )
-                    self.guide_tf_warn_time[side] = now_sec
-                continue
-            p = transform.transform.translation
-            q = transform.transform.rotation
-            try:
-                rot = R.from_quat([q.x, q.y, q.z, q.w])
-            except ValueError:
-                continue
-            self.robot_wrist_pose[side] = (np.array([p.x, p.y, p.z]), rot)
-            if not self.robot_wrist_pose_logged[side]:
-                self.get_logger().info(
-                    f'[VR GUIDE] TF {self.guide_base_frame} -> {child_frame}: '
-                    f'[{p.x:+.3f}, {p.y:+.3f}, {p.z:+.3f}]'
-                )
-                self.robot_wrist_pose_logged[side] = True
-
-    def _capture_relative_calibration(self):
-        """Capture input poses and make measured follower wrists the zero-displacement goals."""
-        if (self.left_controller_matrix is None or self.right_controller_matrix is None
-                or any(self.robot_wrist_pose[side] is None for side in ('left', 'right'))):
-            self.get_logger().warn(
-                'Calibration requires both controller poses and both wrist TF transforms.'
-            )
-            return False
-        self.calibration_input = {'left': {}, 'right': {}}
-        self.calibration_anchor = {'left': {}, 'right': {}}
-        self.calibration_head_inverse_matrix = self.head_inverse_matrix.copy()
-        for side, matrix in (
-                ('left', self.left_controller_matrix), ('right', self.right_controller_matrix)):
-            pos, rot = self._controller_target_from_matrix(matrix, side)
-            self.calibration_input[side]['wrist'] = (pos.copy(), rot)
-            self.calibration_anchor[side]['wrist'] = self.robot_wrist_pose[side]
-        # Elbow/shoulder references are captured on the next synchronized body frame.
-        self.relative_calibrated = True
-        self.get_logger().info(
-            '[CALIBRATION] Controller references captured; relative teleoperation enabled.'
-        )
-        return True
-
-    def _apply_relative_goal(self, side, role, position, rotation):
-        """Map input motion since calibration onto the follower pose at calibration."""
-        if not self.relative_calibrated:
-            return None
-        if role not in self.calibration_input[side]:
-            self.calibration_input[side][role] = (position.copy(), rotation)
-            wrist_in_pos, _ = self.calibration_input[side]['wrist']
-            wrist_anchor_pos, wrist_anchor_rot = self.calibration_anchor[side]['wrist']
-            offset = position - wrist_in_pos
-            self.calibration_anchor[side][role] = (
-                wrist_anchor_pos + offset, wrist_anchor_rot
-            )
-        ref_pos, ref_rot = self.calibration_input[side][role]
-        anchor_pos, anchor_rot = self.calibration_anchor[side][role]
-        delta_rot = ref_rot.inv() * rotation
-        goal_pos = anchor_pos + anchor_rot.apply(ref_rot.inv().apply(position - ref_pos))
-        goal_rot = anchor_rot * delta_rot
-        return goal_pos, goal_rot
-
-    def _controller_target_from_matrix(self, matrix, side):
-        matrix = self.apply_controller_back_offset(matrix)
-        tracking_head_inverse = (
-            self.calibration_head_inverse_matrix
-            if self.relative_calibrated
-            and self.calibration_head_inverse_matrix is not None
-            else self.head_inverse_matrix
-        )
-        relative = tracking_head_inverse @ matrix
-        pos_head, quat_head = self.matrix_to_pose(relative)
-        pos_ros, quat_ros = self.vr_to_ros_transform(pos_head, quat_head)
-        pos_ros = self.scale_goal_position(pos_ros)
-        base_pos = pos_ros - self.camera_to_base_offset
-        base_pos = base_pos.copy()
-        base_pos[2] += self.get_lift_z_delta_for_arm_pose()
-        return self.apply_wrist_offsets(side, base_pos, R.from_quat(quat_ros))
-
-    def _robot_wrist_to_vr_world(self, side):
-        """Inverse the controller-target mapping for an in-headset calibration guide."""
-        cached = self.robot_wrist_pose[side]
-        if cached is None:
-            return None
-        base_pos, base_rot = cached
-        pos = base_pos - self.wrist_position_offsets[side]
-        pos[2] -= self.get_lift_z_delta_for_arm_pose()
-        pos = (pos + self.camera_to_base_offset) / self.goal_pose_position_scale
-        rot = base_rot * self.wrist_rotation_offsets[side].inv()
-        head_pos = VR_HEAD_TO_ROS.T @ pos
-        head_rot = self.vr_head_to_ros_rot.inv() * rot * self.vr_head_to_ros_rot
-        relative = np.eye(4)
-        relative[:3, :3] = head_rot.as_matrix()
-        relative[:3, 3] = head_pos
-        relative[:3, 3] += relative[:3, :3] @ np.array(
-            [0.0, 0.0, -self.controller_back_offset_m]
-        )
-        # The packed follower wrists can be behind the headset.  Move the visual
-        # calibration workspace forward while preserving all live TF motion.
-        relative[1, 3] += self.guide_forward_offset_m
-        if self.guide_head_anchor_matrix is None:
-            return None
-        world = self.guide_head_anchor_matrix @ relative
-        if not self.guide_transform_logged[side]:
-            self.get_logger().info(
-                f'[VR GUIDE] {side} head-relative='
-                f'{relative[:3, 3].round(3).tolist()}, '
-                f'world={world[:3, 3].round(3).tolist()}, '
-                f'forward_offset={self.guide_forward_offset_m:.3f}m'
-            )
-            self.guide_transform_logged[side] = True
-        return world
-
-    def _calibration_guide(self, side, matrix):
-        """Create a built-in Vuer gripper at the requested controller pose."""
-        position = matrix[:3, 3].astype(float).tolist()
-        quaternion = R.from_matrix(matrix[:3, :3]).as_quat().tolist()
-        return Gripper(
-            key=f'{side}-calibration-guide',
-            position=position,
-            quaternion=quaternion,
-            pinchWidth=0.04,
-            axes=True,
-            showOrigin=True,
-            scale=1.5,
-            frustumCulled=False,
-            renderOrder=10,
-        )
-
     def get_lift_z_delta_for_arm_pose(self):
         """Return Z delta applied to arm goals from lift joint motion."""
         if not self.apply_lift_to_arm_z:
@@ -763,8 +593,7 @@ class VRTrajectoryPublisher(Node):
         return (
             self.vr_publishing_enabled and
             self.left_squeeze_value >= self.goal_pose_squeeze_threshold and
-            self.right_squeeze_value >= self.goal_pose_squeeze_threshold and
-            self.relative_calibrated
+            self.right_squeeze_value >= self.goal_pose_squeeze_threshold
         )
 
     def apply_wrist_offsets(self, side, position_ros, rotation_ros):
@@ -901,15 +730,24 @@ class VRTrajectoryPublisher(Node):
             if not skip_rate_limit and not self._should_publish_pose_key(pose_key, now_sec):
                 return
 
-            base_position, base_rotation = self._controller_target_from_matrix(
-                world_joint_matrix, side
+            world_joint_matrix = self.apply_controller_back_offset(world_joint_matrix)
+            relative_joint_matrix = self.head_inverse_matrix @ world_joint_matrix
+            relative_pos_head, relative_quat_head = self.matrix_to_pose(
+                relative_joint_matrix
             )
-            relative_goal = self._apply_relative_goal(
-                side, 'wrist', base_position, base_rotation
+            relative_pos_ros, relative_quat_ros = self.vr_to_ros_transform(
+                relative_pos_head, relative_quat_head
             )
-            if relative_goal is None:
-                return
-            base_position, base_rotation = relative_goal
+            relative_pos_ros = self.scale_goal_position(relative_pos_ros)
+            relative_rot_ros = R.from_quat(relative_quat_ros)
+
+            # 1) Coordinate conversion 2) camera->base shift 3) user-configurable offsets
+            base_position = relative_pos_ros - self.camera_to_base_offset
+            base_position = base_position.copy()
+            base_position[2] += self.get_lift_z_delta_for_arm_pose()
+            base_position, base_rotation = self.apply_wrist_offsets(
+                side, base_position, relative_rot_ros
+            )
             arm_quaternion = base_rotation.as_quat()  # [x, y, z, w]
 
             wrist_pose = PoseStamped()
@@ -948,13 +786,7 @@ class VRTrajectoryPublisher(Node):
             if not skip_rate_limit and not self._should_publish_pose_key(pose_key, now_sec):
                 return
 
-            tracking_head_inverse = (
-                self.calibration_head_inverse_matrix
-                if self.relative_calibrated
-                and self.calibration_head_inverse_matrix is not None
-                else self.head_inverse_matrix
-            )
-            relative_joint_matrix = tracking_head_inverse @ world_joint_matrix
+            relative_joint_matrix = self.head_inverse_matrix @ world_joint_matrix
             relative_pos_head, relative_quat_head = self.matrix_to_pose(
                 relative_joint_matrix
             )
@@ -969,12 +801,6 @@ class VRTrajectoryPublisher(Node):
             base_position[2] += self.get_lift_z_delta_for_arm_pose()
             side_key = side if side in ('left', 'right') else 'left'
             base_position = base_position + self.elbow_position_offsets[side_key]
-            relative_goal = self._apply_relative_goal(
-                side, 'elbow', base_position, elbow_rotation
-            )
-            if relative_goal is None:
-                return
-            base_position, elbow_rotation = relative_goal
             elbow_quaternion = elbow_rotation.as_quat()
 
             elbow_pose = PoseStamped()
@@ -1013,13 +839,7 @@ class VRTrajectoryPublisher(Node):
             if not skip_rate_limit and not self._should_publish_pose_key(pose_key, now_sec):
                 return
 
-            tracking_head_inverse = (
-                self.calibration_head_inverse_matrix
-                if self.relative_calibrated
-                and self.calibration_head_inverse_matrix is not None
-                else self.head_inverse_matrix
-            )
-            relative_joint_matrix = tracking_head_inverse @ world_joint_matrix
+            relative_joint_matrix = self.head_inverse_matrix @ world_joint_matrix
             relative_pos_head, relative_quat_head = self.matrix_to_pose(
                 relative_joint_matrix
             )
@@ -1339,8 +1159,6 @@ class VRTrajectoryPublisher(Node):
         """Run main controller/body tracking session."""
         try:
             fps = self.fps
-            self.guide_head_anchor_matrix = None
-            self.guide_transform_logged = {'left': False, 'right': False}
             self.get_logger().info('Starting controller/body tracking session')
             session.set @ Scene(
                 Body(
@@ -1365,13 +1183,6 @@ class VRTrajectoryPublisher(Node):
             )
             self.get_logger().info('Controller and body tracking enabled')
             while True:
-                guides = []
-                for side in ('left', 'right'):
-                    matrix = self._robot_wrist_to_vr_world(side)
-                    if matrix is not None:
-                        guides.append(self._calibration_guide(side, matrix))
-                if guides:
-                    session.upsert @ guides
                 await asyncio.sleep(1/fps)
         except Exception as e:
             self.get_logger().error(f'Error in controller/body tracking session: {e}')
@@ -1412,8 +1223,6 @@ class VRTrajectoryPublisher(Node):
                 self.head_inverse_matrix = np.linalg.inv(head_matrix)
             except np.linalg.LinAlgError:
                 return
-            if self.guide_head_anchor_matrix is None:
-                self.guide_head_anchor_matrix = head_matrix.copy()
 
             self.left_elbow_matrix = self.get_body_joint_matrix_from_flat(
                 body_array, BODY_LEFT_ELBOW_INDEX
@@ -1509,16 +1318,16 @@ class VRTrajectoryPublisher(Node):
             # Publish reactivate when both A or both B buttons are pressed
             # (rising edge only).
             left_a = (
-                bool(self.left_controller_state.get(
-                    'xButton', self.left_controller_state.get('aButton', False)))
+                bool(self.left_controller_state.get('aButton', False))
                 if isinstance(self.left_controller_state, dict) else False
             )
             right_a = (
                 bool(self.right_controller_state.get('aButton', False))
                 if isinstance(self.right_controller_state, dict) else False
             )
-            both_a_now = left_a and right_a  # X on left controller + A on right controller
-            activate_edge = both_a_now and not self.both_a_buttons_pressed_prev
+            both_a_now = left_a and right_a
+            if both_a_now and not self.both_a_buttons_pressed_prev:
+                self._publish_reactivate(True, reason='both A buttons', force_log=True)
             self.both_a_buttons_pressed_prev = both_a_now
 
             left_b = (
@@ -1531,14 +1340,10 @@ class VRTrajectoryPublisher(Node):
             )
             both_b_now = left_b and right_b
             if both_b_now and not self.both_b_buttons_pressed_prev:
-                self.relative_calibrated = False
-                self.calibration_head_inverse_matrix = None
                 self._publish_reactivate(False, reason='both B buttons', force_log=True)
             self.both_b_buttons_pressed_prev = both_b_now
 
             if not self._both_squeezes_active():
-                self.relative_calibrated = False
-                self.calibration_head_inverse_matrix = None
                 self._publish_reactivate(False, reason='squeeze released')
 
             left_matrix_raw = data.get('left')
@@ -1552,15 +1357,6 @@ class VRTrajectoryPublisher(Node):
                 self.right_controller_matrix = np.asarray(
                     right_matrix_raw, dtype=np.float64
                 ).reshape(4, 4, order='F')
-            if activate_edge:
-                if not self._both_squeezes_active():
-                    self.get_logger().warn(
-                        '[CALIBRATION] Hold both squeeze buttons while pressing A and X.'
-                    )
-                elif self._capture_relative_calibration():
-                    self._publish_reactivate(
-                        True, reason='A+X calibration capture', force_log=True
-                    )
             if (
                 isinstance(left_matrix_raw, (list, np.ndarray)) and len(left_matrix_raw) == 16
             ) or (
