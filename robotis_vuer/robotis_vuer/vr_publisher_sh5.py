@@ -190,9 +190,9 @@ class VRTrajectoryPublisher(Node):
         self.right_joint_names = list(RIGHT_JOINT_NAMES)
 
         # Lift and base (whole-body) parameters
-        self.declare_parameter('enable_lift_publishing', True)
+        self.declare_parameter('enable_lift_publishing', False)
         self.declare_parameter('enable_head_publishing', False)
-        self.declare_parameter('enable_base_publishing', True)
+        self.declare_parameter('enable_base_publishing', False)
         self.declare_parameter('enable_vr_image', False)
 
         self.declare_parameter('base_linear_kp', 1.7)
@@ -202,6 +202,7 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('base_max_linear_velocity', 0.3)
         self.declare_parameter('base_max_angular_velocity', 0.5)
         self.declare_parameter('enable_base_debug_topics', False)
+        self.declare_parameter('stable_body_frame_alpha', 0.35)
         self.declare_parameter('base_divergence_position_threshold', 0.5)
         self.declare_parameter('base_divergence_yaw_threshold', 0.5)
 
@@ -245,6 +246,12 @@ class VRTrajectoryPublisher(Node):
             self.get_parameter('enable_base_debug_topics')
             .get_parameter_value().bool_value
         )
+        self.stable_body_frame_alpha = float(
+            self.get_parameter('stable_body_frame_alpha').value
+        )
+        self.stable_body_frame_alpha = min(
+            1.0, max(0.01, self.stable_body_frame_alpha)
+        )
         self.base_divergence_position_threshold = (
             self.get_parameter('base_divergence_position_threshold')
             .get_parameter_value().double_value
@@ -279,10 +286,10 @@ class VRTrajectoryPublisher(Node):
         # Wrist/shoulder position offsets (head-relative, ROS frame: X forward, Y left, Z up)
         self.declare_parameter('left_wrist_offset_x', 0.0)
         self.declare_parameter('left_wrist_offset_y', 0.0)
-        self.declare_parameter('left_wrist_offset_z', EYE_NECK_OFFSET_Z - 0.1)
+        self.declare_parameter('left_wrist_offset_z', EYE_NECK_OFFSET_Z)
         self.declare_parameter('right_wrist_offset_x', 0.0)
         self.declare_parameter('right_wrist_offset_y', 0.0)
-        self.declare_parameter('right_wrist_offset_z', EYE_NECK_OFFSET_Z - 0.1)
+        self.declare_parameter('right_wrist_offset_z', EYE_NECK_OFFSET_Z)
         self.declare_parameter('wrist_reference_forward_offset_m', 0.0)
         self.declare_parameter('left_shoulder_offset_x', 0.0)
         self.declare_parameter('left_shoulder_offset_y', 0.0)
@@ -294,6 +301,7 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('left_wrist_tf_frame', 'arm_l_link7')
         self.declare_parameter('right_wrist_tf_frame', 'arm_r_link7')
         self.declare_parameter('guide_tf_hz', 30.0)
+        self.declare_parameter('wrist_visualization_forward_offset_m', 0.10)
 
         self.enable_vr_image = (
             self.get_parameter('enable_vr_image')
@@ -327,6 +335,15 @@ class VRTrajectoryPublisher(Node):
             0.0,
             0.0,
         ], dtype=np.float64)
+        self.wrist_visualization_offset = np.array([
+            float(
+                self.get_parameter(
+                    'wrist_visualization_forward_offset_m'
+                ).value
+            ),
+            0.0,
+            0.0,
+        ], dtype=np.float64)
         self.shoulder_offsets = {
             'left': {
                 'x': self.get_parameter(
@@ -357,7 +374,9 @@ class VRTrajectoryPublisher(Node):
             f'base_linear_kp={self.base_linear_kp}, base_angular_kp={self.base_angular_kp}, '
             f'base_debug_topics={self.enable_base_debug_topics}, vr_image={self.enable_vr_image}, '
             f'wrist_reference_forward_offset='
-            f'{self.wrist_reference_offset[0]:.3f}m'
+            f'{self.wrist_reference_offset[0]:.3f}m, '
+            f'wrist_visualization_forward_offset='
+            f'{self.wrist_visualization_offset[0]:.3f}m'
         )
 
         # VR publishing control flag
@@ -447,7 +466,27 @@ class VRTrajectoryPublisher(Node):
         self.right_wrist_rviz_pub = self.create_publisher(
             PoseStamped, '/r_wrist_pose', self.vr_stream_qos
         )
+        self.debug_stable_torso_pub = self.create_publisher(
+            PoseStamped, '/vr_debug/stable_torso', self.vr_stream_qos
+        )
+        self.debug_raw_wrist_pub = {
+            side: self.create_publisher(
+                PoseStamped, f'/vr_debug/{side}_raw_wrist', self.vr_stream_qos
+            ) for side in ('left', 'right')
+        }
+        self.debug_control_input_pub = {
+            side: self.create_publisher(
+                PoseStamped, f'/vr_debug/{side}_control_input', self.vr_stream_qos
+            ) for side in ('left', 'right')
+        }
+        self.debug_robot_visual_pub = {
+            side: self.create_publisher(
+                PoseStamped, f'/vr_debug/{side}_robot_visual', self.vr_stream_qos
+            ) for side in ('left', 'right')
+        }
         self.robot_wrist_pose = {'left': None, 'right': None}
+        self.reference_wrist_pose = {'left': None, 'right': None}
+        self.operator_wrist_candidate_pose = {'left': None, 'right': None}
         self.robot_wrist_pose_logged = {'left': False, 'right': False}
         self.guide_transform_logged = {'left': False, 'right': False}
         self.guide_base_frame = str(self.get_parameter('guide_base_frame').value)
@@ -550,9 +589,14 @@ class VRTrajectoryPublisher(Node):
         self.head_inverse_matrix = np.eye(4)
         self.teleop_head_transform_matrix = None
         self.torso_transform_matrix = None
+        self.stable_torso_frame_valid = False
+        self.stable_body_frame_logged = False
+        self.stable_body_warn_time = 0.0
         self.teleop_torso_transform_matrix = None
         self.guide_head_anchor_matrix = None
         self.guide_torso_anchor_matrix = None
+        self.guide_visual_anchor_matrix = None
+        self.guide_odom_anchor_matrix = None
         # head orientation in ROS frame for base_link pose
         self.head_ros_quat = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
         self.hand_pose_is_head_relative = self.declare_parameter(
@@ -607,9 +651,9 @@ class VRTrajectoryPublisher(Node):
         self.max_wrist_angle_step_deg = 30.0
 
         # Scaling VR data
-        self.scaling_vr = 1.1
-        self.wrist_vr_scale = 1.4
-        self.shoulder_vr_scale = 1.4
+        self.scaling_vr = 1.0
+        self.wrist_vr_scale = 1.0
+        self.shoulder_vr_scale = 1.0
 
         # Head pitch offset configuration
         self.pitch_offset = -0.5
@@ -649,6 +693,9 @@ class VRTrajectoryPublisher(Node):
     def odom_callback(self, msg):
         """Receive robot odometry for base control."""
         self.current_odom = msg
+        if self.guide_odom_anchor_matrix is None:
+            self.guide_odom_anchor_matrix = self._odom_pose_matrix(msg)
+        self._capture_guide_world_anchor_if_ready()
 
     def reactivate_callback(self, msg):
         """Apply immediate VR publishing state from /vr/reactivate topic."""
@@ -679,6 +726,151 @@ class VRTrajectoryPublisher(Node):
     def is_vr_publishing_active(self):
         """Return current VR publishing state."""
         return bool(self.vr_publishing_enabled)
+
+    def _update_stable_body_frame(self, body_array):
+        """Update a head-independent torso frame from shoulders and hips.
+
+        Local axes intentionally match the existing body-relative convention:
+        +X down, +Y forward, +Z right. Invalid skeleton frames are rejected and
+        the last valid transform is retained.
+        """
+        # XRBodyJoint naming does not guarantee that `shoulder` is the outer
+        # anatomical shoulder. Select the widest plausible bilateral upper-body
+        # pair instead of accepting the first non-empty pair.
+        lateral_candidates = []
+        for left_name, right_name in (
+            ('left-scapula', 'right-scapula'),
+            ('left-arm-upper', 'right-arm-upper'),
+            ('left-shoulder', 'right-shoulder'),
+        ):
+            left_candidate = self._get_body_joint_position(body_array, left_name)
+            right_candidate = self._get_body_joint_position(body_array, right_name)
+            if left_candidate is None or right_candidate is None:
+                continue
+            width = float(np.linalg.norm(right_candidate - left_candidate))
+            if 0.10 <= width <= 0.8:
+                lateral_candidates.append(
+                    (width, left_name, left_candidate, right_candidate)
+                )
+        if not lateral_candidates:
+            self._warn_stable_body_wait('missing usable bilateral torso landmarks')
+            return False
+        shoulder_width, lateral_source, left_pos, right_pos = max(
+            lateral_candidates, key=lambda item: item[0]
+        )
+
+        left_hip = self._get_body_joint_position(body_array, 'left-upper-leg')
+        right_hip = self._get_body_joint_position(body_array, 'right-upper-leg')
+        hips_pos = self._get_body_joint_position(body_array, 'hips')
+        if hips_pos is None and left_hip is not None and right_hip is not None:
+            hips_pos = 0.5 * (left_hip + right_hip)
+        if hips_pos is None:
+            hips_pos = self._get_body_joint_position(body_array, 'spine-lower')
+        if hips_pos is None:
+            self._warn_stable_body_wait('missing hips/upper-leg/spine-lower landmark')
+            return False
+
+        shoulder_mid = 0.5 * (left_pos + right_pos)
+        right_raw = right_pos - left_pos
+        down_raw = hips_pos - shoulder_mid
+        torso_length = float(np.linalg.norm(down_raw))
+        if not (0.10 <= shoulder_width <= 0.8 and 0.12 <= torso_length <= 1.0):
+            self._warn_stable_body_wait(
+                f'invalid geometry source={lateral_source} width={shoulder_width:.3f} '
+                f'torso={torso_length:.3f}'
+            )
+            return False
+
+        # Hip landmarks are less affected by headset rotation than inferred
+        # shoulders. Blend both lateral axes when available, while retaining a
+        # shoulder-only fallback for partial lower-body tracking.
+        if left_hip is not None and right_hip is not None:
+            hip_right = right_hip - left_hip
+            hip_width = float(np.linalg.norm(hip_right))
+            if 0.1 <= hip_width <= 0.7:
+                right_raw = (
+                    0.4 * (right_raw / shoulder_width)
+                    + 0.6 * (hip_right / hip_width)
+                )
+
+        x_down = down_raw / torso_length
+        z_right = right_raw - x_down * float(np.dot(x_down, right_raw))
+        z_norm = float(np.linalg.norm(z_right))
+        if z_norm < 1e-5:
+            return False
+        z_right /= z_norm
+        y_forward = np.cross(z_right, x_down)
+        y_norm = float(np.linalg.norm(y_forward))
+        if y_norm < 1e-5:
+            return False
+        y_forward /= y_norm
+        z_right = np.cross(x_down, y_forward)
+        z_right /= np.linalg.norm(z_right)
+
+        measured = np.eye(4, dtype=np.float64)
+        measured[:3, :3] = np.column_stack((x_down, y_forward, z_right))
+        measured[:3, 3] = shoulder_mid
+
+        if self.torso_transform_matrix is None:
+            self.torso_transform_matrix = measured
+        else:
+            alpha = self.stable_body_frame_alpha
+            previous = self.torso_transform_matrix
+            filtered = np.eye(4, dtype=np.float64)
+            filtered[:3, 3] = (
+                alpha * measured[:3, 3] + (1.0 - alpha) * previous[:3, 3]
+            )
+            previous_quat = R.from_matrix(previous[:3, :3]).as_quat()
+            measured_quat = R.from_matrix(measured[:3, :3]).as_quat()
+            if float(np.dot(previous_quat, measured_quat)) < 0.0:
+                measured_quat = -measured_quat
+            filtered_quat = (
+                (1.0 - alpha) * previous_quat + alpha * measured_quat
+            )
+            quat_norm = float(np.linalg.norm(filtered_quat))
+            if quat_norm < 1e-8:
+                return False
+            filtered[:3, :3] = R.from_quat(filtered_quat / quat_norm).as_matrix()
+            self.torso_transform_matrix = filtered
+
+        self.stable_torso_frame_valid = True
+        if not self.stable_body_frame_logged:
+            self.get_logger().info(
+                f'[BODY FRAME] Stable shoulder/hips frame ready: '
+                f'source={lateral_source} width={shoulder_width:.3f}m '
+                f'torso={torso_length:.3f}m'
+            )
+            self.stable_body_frame_logged = True
+        return True
+
+    def _warn_stable_body_wait(self, reason):
+        """Throttle diagnostics while waiting for usable body landmarks."""
+        now_sec = self.get_clock().now().nanoseconds / 1e9
+        if now_sec - self.stable_body_warn_time >= 5.0:
+            self.get_logger().warn(f'[BODY FRAME] Waiting: {reason}')
+            self.stable_body_warn_time = now_sec
+
+    @staticmethod
+    def _get_body_joint_position(body_array, joint_name):
+        """Read a body landmark position without requiring a valid orientation."""
+        if joint_name not in BODY_JOINT_KEYS:
+            return None
+        index = BODY_JOINT_KEYS.index(joint_name)
+        start = index * 16
+        end = start + 16
+        arr = (
+            body_array if isinstance(body_array, np.ndarray)
+            else np.asarray(body_array, dtype=np.float64)
+        )
+        if arr.size < end:
+            return None
+        raw = np.asarray(arr[start:end], dtype=np.float64)
+        if not np.all(np.isfinite(raw)) or not np.any(np.abs(raw) > 1e-8):
+            return None
+        position = raw.reshape(4, 4, order='F')[:3, 3]
+        if not np.all(np.isfinite(position)):
+            return None
+        return position.copy()
 
     def _arm_tracking_head_matrix(self):
         """Build the headset frame used to express arm references.
@@ -756,6 +948,49 @@ class VRTrajectoryPublisher(Node):
         tracking[:3, :3] = self.vr_to_ros_matrix.T @ tracking_rot_ros.as_matrix()
         return tracking
 
+    @staticmethod
+    def _odom_pose_matrix(odom_msg):
+        """Convert an Odometry pose into a homogeneous odom-to-base matrix."""
+        pose = odom_msg.pose.pose
+        matrix = np.eye(4, dtype=np.float64)
+        matrix[:3, 3] = [pose.position.x, pose.position.y, pose.position.z]
+        try:
+            matrix[:3, :3] = R.from_quat([
+                pose.orientation.x,
+                pose.orientation.y,
+                pose.orientation.z,
+                pose.orientation.w,
+            ]).as_matrix()
+        except ValueError:
+            return None
+        return matrix
+
+    def _capture_guide_world_anchor_if_ready(self):
+        """Capture the immutable XR-world/base_link visualization alignment."""
+        if (self.guide_visual_anchor_matrix is not None or
+                self.guide_head_anchor_matrix is None or
+                not self.stable_torso_frame_valid or
+                self.torso_transform_matrix is None):
+            return
+        self.guide_visual_anchor_matrix = self._guide_tracking_matrix().copy()
+        if self.current_odom is not None:
+            self.guide_odom_anchor_matrix = self._odom_pose_matrix(
+                self.current_odom
+            )
+        display_frame = 'odom' if self.enable_base_publishing else 'base_link'
+        self.get_logger().info(
+            f'[VR GUIDE] Fixed XR-world/{display_frame} visualization anchor captured.'
+        )
+
+    def _odom_delta_from_guide_anchor(self):
+        """Return current base pose in the base frame captured for visualization."""
+        if self.guide_odom_anchor_matrix is None or self.current_odom is None:
+            return None
+        current_odom_base = self._odom_pose_matrix(self.current_odom)
+        if current_odom_base is None:
+            return None
+        return np.linalg.inv(self.guide_odom_anchor_matrix) @ current_odom_base
+
     def _update_robot_wrist_poses_from_tf(self):
         """Continuously cache follower wrist transforms for calibration."""
         for side, child_frame in self.wrist_tf_frames.items():
@@ -819,7 +1054,13 @@ class VRTrajectoryPublisher(Node):
             )
         ref_pos, ref_rot = self.calibration_input[side][role]
         anchor_pos, anchor_rot = self.calibration_anchor[side][role]
-        goal_pos = anchor_pos + anchor_rot.apply(ref_rot.inv().apply(position - ref_pos))
+        # position and ref_pos are already expressed in base_link.  Rotating
+        # their delta by the calibration wrist orientation applies a second,
+        # unrelated frame transform: a differently oriented calibration pose
+        # then makes the robot translate along different axes than the tracked
+        # wrist.  Position deltas must remain in base_link; only orientation
+        # uses the relative wrist rotation captured at calibration.
+        goal_pos = anchor_pos + position - ref_pos
         goal_rot = anchor_rot * (ref_rot.inv() * rotation)
         return goal_pos, goal_rot
 
@@ -836,6 +1077,7 @@ class VRTrajectoryPublisher(Node):
             self.prev_poses_left.fill(0.0)
             self.prev_poses_right.fill(0.0)
             self.pose_filters.clear()
+            self.reference_wrist_pose = {'left': None, 'right': None}
             self.initial_camera_height = None
             self.initial_camera_position = None
             self.initial_camera_yaw = None
@@ -1012,6 +1254,23 @@ class VRTrajectoryPublisher(Node):
 
         return pos, quat
 
+    def _publish_debug_matrix(self, publisher, matrix, frame_id, stamp=None):
+        """Publish a homogeneous transform for synchronized tracking diagnostics."""
+        if publisher is None or matrix is None or not np.all(np.isfinite(matrix)):
+            return
+        position, quaternion = self.matrix_to_pose(matrix)
+        msg = PoseStamped()
+        msg.header.stamp = stamp if stamp is not None else self.get_clock().now().to_msg()
+        msg.header.frame_id = frame_id
+        msg.pose.position.x = float(position[0])
+        msg.pose.position.y = float(position[1])
+        msg.pose.position.z = float(position[2])
+        msg.pose.orientation.x = float(quaternion[0])
+        msg.pose.orientation.y = float(quaternion[1])
+        msg.pose.orientation.z = float(quaternion[2])
+        msg.pose.orientation.w = float(quaternion[3])
+        publisher.publish(msg)
+
     # Body head-relative frame from head_inverse @ world:
     # +Y=forward, +Z=right, +X=down. Convert to ROS (+X forward, +Y left, +Z up).
     BODY_HEAD_TO_ROS_POSITION = np.array([
@@ -1171,6 +1430,14 @@ class VRTrajectoryPublisher(Node):
         base_position = base_position + np.array(
             [x_offset, y_offset, z_offset], dtype=np.float64
         )
+        if pose_role == 'wrist' and side in self.debug_control_input_pub:
+            debug_input = np.eye(4, dtype=np.float64)
+            debug_input[:3, 3] = base_position
+            debug_input[:3, :3] = R.from_quat(arm_quaternion).as_matrix()
+            self._publish_debug_matrix(
+                self.debug_control_input_pub[side], debug_input,
+                'base_link_unanchored', stamp
+            )
         relative_goal = self._apply_relative_goal(
             side, pose_role, base_position, R.from_quat(arm_quaternion)
         ) if side and pose_role in ('wrist', 'shoulder') else (
@@ -1214,6 +1481,12 @@ class VRTrajectoryPublisher(Node):
         target_pose.pose.orientation.y = arm_quaternion[1]
         target_pose.pose.orientation.z = arm_quaternion[2]
         target_pose.pose.orientation.w = arm_quaternion[3]
+        if pose_role == 'wrist' and side in self.reference_wrist_pose:
+            # Cache the exact final pose sent to the controller.  The Vuer
+            # reference guide uses this value, not raw hand tracking data.
+            self.reference_wrist_pose[side] = (
+                base_position.copy(), relative_rotation
+            )
         publisher.publish(target_pose)
 
     def get_joint_matrix(self, hand_data, joint_index):
@@ -1337,6 +1610,10 @@ class VRTrajectoryPublisher(Node):
                     relative_pos_vr = head_rot_inv @ (world_pos - head_world_pos)
                     temp_joints[pose_counter, :] = relative_pos_vr
                     if i == 0:
+                        self._publish_debug_matrix(
+                            self.debug_raw_wrist_pub[side], world_joint_matrix,
+                            'xr_world', pose_stamp
+                        )
                         wrist_rot = head_rot_inv @ world_rot
                         wrist_pos_ros = (
                             self.BODY_HEAD_TO_ROS_POSITION @ relative_pos_vr
@@ -1348,6 +1625,10 @@ class VRTrajectoryPublisher(Node):
                     relative_pos_vr = world_pos
                     temp_joints[pose_counter, :] = relative_pos_vr
                     if i == 0:
+                        self._publish_debug_matrix(
+                            self.debug_raw_wrist_pub[side], world_joint_matrix,
+                            'xr_world', pose_stamp
+                        )
                         wrist_rot = world_rot
                         wrist_pos_ros = self.vr_to_ros_matrix @ relative_pos_vr
                         wrist_quat_ros = R.from_matrix(self.vr_to_ros_matrix @ wrist_rot).as_quat()
@@ -1426,14 +1707,24 @@ class VRTrajectoryPublisher(Node):
         self.server_thread = threading.Thread(target=run_server, daemon=True)
         self.server_thread.start()
 
-    def _robot_wrist_to_vr_world(self, side):
-        """Convert measured follower wrist pose into the WebXR world for guidance."""
-        # Always use live follower TF. The calibration anchor is a command-space
-        # reference and must not replace the measured wrist visualization.
-        cached = self.robot_wrist_pose[side]
-        if cached is None:
-            return None
+    def _base_wrist_pose_to_vr_world(self, side, cached):
+        """Map a wrist pose through base_link or odom according to base control."""
+        if cached is None or self.guide_visual_anchor_matrix is None:
+            return None, None
         base_pos, base_rot = cached
+        # Display-only shift: move both orange and cyan guides 10 cm in front
+        # of the wearer/robot base without changing calibration or commands.
+        base_pos = base_pos + self.wrist_visualization_offset
+        if self.enable_base_publishing:
+            odom_delta = self._odom_delta_from_guide_anchor()
+            if odom_delta is None:
+                return None, None
+            base_wrist = np.eye(4, dtype=np.float64)
+            base_wrist[:3, 3] = base_pos
+            base_wrist[:3, :3] = base_rot.as_matrix()
+            odom_wrist = odom_delta @ base_wrist
+            base_pos = odom_wrist[:3, 3]
+            base_rot = R.from_matrix(odom_wrist[:3, :3])
         offsets = self.wrist_offsets[side]
         # This is the measured robot wrist visualization, so keep it at the
         # actual live TF pose. The operator/robot morphology offset is rendered
@@ -1452,14 +1743,25 @@ class VRTrajectoryPublisher(Node):
             self.body_head_to_ros_rot.inv() * base_rot
         ).as_matrix()
         relative[:3, 3] = self.BODY_HEAD_TO_ROS_POSITION.T @ ros_pos
-        # Wait until the first valid headset pose is available, then render the
-        # follower wrist in exactly the same hybrid tracking frame used by arm
-        # reference generation.  This keeps the guide head-relative on disabled
-        # base/lift axes and world-relative only on enabled axes.
-        if self.guide_head_anchor_matrix is None:
+        # With base control disabled, compare both wrists in the fixed base_link
+        # display frame.  With base control enabled, lift both through the same
+        # live odom delta so translation/yaw remain visible in XR as the robot
+        # base follows the wearer.
+        world = self.guide_visual_anchor_matrix @ relative
+        return world, relative
+
+    def _robot_wrist_to_vr_world(self, side):
+        """Convert the measured follower wrist pose into WebXR world."""
+        # Calibration never participates in this path: cyan is always the live
+        # robot TF expressed through the fixed XR/odom alignment.
+        world, relative = self._base_wrist_pose_to_vr_world(
+            side, self.robot_wrist_pose[side]
+        )
+        if world is None:
             return None
-        guide_tracking_frame = self._guide_tracking_matrix()
-        world = guide_tracking_frame @ relative
+        self._publish_debug_matrix(
+            self.debug_robot_visual_pub[side], world, 'xr_world'
+        )
         if not self.guide_transform_logged[side]:
             self.get_logger().info(
                 f'[VR GUIDE] {side} head-relative='
@@ -1499,7 +1801,19 @@ class VRTrajectoryPublisher(Node):
         )
 
     def _tracked_wrist_to_vr_world(self, side):
-        """Return the morphology-compensated human wrist used for calibration."""
+        """Return the body-relative operator wrist candidate in WebXR."""
+        # Never replace the orange operator wrist with the robot-anchored final
+        # command after enable.  Doing so made an incorrectly aligned orange
+        # sphere snap onto cyan even though the user's measured pose had not
+        # moved.  The controller may retain its no-step calibration anchor, but
+        # visualization must remain an independent measurement at all times.
+        base_pose = self._operator_wrist_candidate_from_tracking(side)
+        self.operator_wrist_candidate_pose[side] = base_pose
+        world, _ = self._base_wrist_pose_to_vr_world(side, base_pose)
+        return world
+
+    def _operator_wrist_candidate_from_tracking(self, side):
+        """Compute a body-relative base_link wrist pose without side effects."""
         hand_data = self.left_hand_data if side == 'left' else self.right_hand_data
         if hand_data is None or len(hand_data) != 400:
             return None
@@ -1510,43 +1824,53 @@ class VRTrajectoryPublisher(Node):
             world_rot = wrist[:3, :3]
             if not np.all(np.isfinite(wrist)) or abs(np.linalg.det(world_rot)) < 1e-6:
                 return None
-
-            display = wrist.copy()
             if self.hand_pose_is_head_relative:
-                tracking_head = self._arm_tracking_head_matrix()
-                relative_rot = tracking_head[:3, :3].T @ world_rot
-                control_rot = self.body_head_to_ros_rot * R.from_matrix(relative_rot)
+                body_frame = self._arm_tracking_head_matrix()
+                if body_frame is None:
+                    return None
+                relative_pos_vr = (
+                    body_frame[:3, :3].T
+                    @ (wrist[:3, 3] - body_frame[:3, 3])
+                )
+                relative_rot = body_frame[:3, :3].T @ world_rot
+                base_position = (
+                    self.BODY_HEAD_TO_ROS_POSITION @ relative_pos_vr
+                ) * float(self.wrist_vr_scale)
+                control_rot = (
+                    self.body_head_to_ros_rot * R.from_matrix(relative_rot)
+                )
                 if side == 'right':
                     control_rot = control_rot * R.from_euler('z', 180, degrees=True)
-                display_relative_rot = self.body_head_to_ros_rot.inv() * control_rot
-                display[:3, :3] = (
-                    tracking_head[:3, :3] @ display_relative_rot.as_matrix()
-                )
             else:
+                base_position = (
+                    self.vr_to_ros_matrix @ wrist[:3, 3]
+                ) * float(self.wrist_vr_scale)
                 control_rot = R.from_matrix(self.vr_to_ros_matrix @ world_rot)
                 if side == 'right':
                     control_rot = control_rot * R.from_euler('z', 180, degrees=True)
-                display[:3, :3] = self.vr_to_ros_matrix.T @ control_rot.as_matrix()
 
-            # Visualize the operator wrist at the robot-equivalent reach. This
-            # applies the configured morphology offset along base +X while the
-            # cyan sphere remains the measured robot wrist. Aligning the two
-            # spheres therefore captures the morphology offset without an
-            # enable-time command step.
-            tracking_frame = self._guide_tracking_matrix()
-            visual_offset_relative = (
-                self.BODY_HEAD_TO_ROS_POSITION.T
-                @ self.wrist_reference_offset
+            base_position = base_position - self.zedm_to_base_offset
+            if (
+                self.is_vr_publishing_active()
+                and self.enable_lift_publishing
+                and self.apply_head_height_to_arm_z
+            ):
+                base_position[2] -= (
+                    float(self.wrist_vr_scale) - 1.0
+                ) * float(self.head_height_offset_for_arms)
+            if self.zero_z_on_start and self.z_calibrated:
+                base_position[2] -= self.z_calibration_offset
+            offsets = self.wrist_offsets[side]
+            base_position += np.array(
+                [offsets['x'], offsets['y'], offsets['z']], dtype=np.float64
             )
-            display[:3, 3] += (
-                tracking_frame[:3, :3] @ visual_offset_relative
-            )
-            return display
+            base_position += self.wrist_reference_offset
+            return base_position, control_rot
         except (ValueError, TypeError):
             return None
 
     def _tracked_wrist_guide(self, side, matrix):
-        """Show the user's tracked wrist distinctly from the follower wrist."""
+        """Show the effective body-relative wrist reference in orange."""
         position = matrix[:3, 3].astype(float).tolist()
         quaternion = R.from_matrix(matrix[:3, :3]).as_quat().tolist()
         return Group(
@@ -1557,7 +1881,7 @@ class VRTrajectoryPublisher(Node):
                 Sphere(
                     key=f'{side}-tracked-wrist-sphere',
                     args=[0.04, 16, 12],
-                    # Wearer's tracked wrist: orange.
+                    # Body-relative base_link wrist reference: orange.
                     materialType='basic',
                     material={
                         'color': '#ff6b00',
@@ -1580,9 +1904,17 @@ class VRTrajectoryPublisher(Node):
         try:
             fps = self.fps
             self.current_session = session
+            self.torso_transform_matrix = None
+            self.stable_torso_frame_valid = False
+            self.stable_body_frame_logged = False
+            self.stable_body_warn_time = 0.0
             self.guide_head_anchor_matrix = None
             self.guide_torso_anchor_matrix = None
+            self.guide_visual_anchor_matrix = None
+            self.guide_odom_anchor_matrix = None
             self.guide_transform_logged = {'left': False, 'right': False}
+            self.reference_wrist_pose = {'left': None, 'right': None}
+            self.operator_wrist_candidate_pose = {'left': None, 'right': None}
             self.get_logger().info('Starting hand tracking session')
 
             bg_children = [
@@ -1769,16 +2101,24 @@ class VRTrajectoryPublisher(Node):
             # --- Head joint: for all head-related processing ---
             # get_body_joint_matrix_from_flat now rejects degenerate matrices (det~0)
             head_matrix = self.get_body_joint_matrix_from_flat(body_array, 'head')
-            torso_matrix = self.get_body_joint_matrix_from_flat(body_array, 'chest')
+            self._update_stable_body_frame(body_array)
+            torso_matrix = self.torso_transform_matrix
             if torso_matrix is not None:
-                self.torso_transform_matrix = torso_matrix
-                if self.guide_torso_anchor_matrix is None:
-                    self.guide_torso_anchor_matrix = torso_matrix.copy()
+                self._publish_debug_matrix(
+                    self.debug_stable_torso_pub, torso_matrix, 'xr_world'
+                )
+            if (self.is_vr_publishing_active() and
+                    self.teleop_torso_transform_matrix is None and
+                    torso_matrix is not None):
+                self.teleop_torso_transform_matrix = torso_matrix.copy()
+            if torso_matrix is not None and self.guide_torso_anchor_matrix is None:
+                self.guide_torso_anchor_matrix = torso_matrix.copy()
             if head_matrix is not None:
                 self.head_transform_matrix = head_matrix
                 self.head_inverse_matrix = np.linalg.inv(head_matrix)
                 if self.guide_head_anchor_matrix is None:
                     self.guide_head_anchor_matrix = head_matrix.copy()
+                self._capture_guide_world_anchor_if_ready()
 
                 pos, quat = self.matrix_to_pose(head_matrix)
                 ros_pos, ros_quat = self.vr_to_ros_transform(pos, quat)
@@ -1790,6 +2130,11 @@ class VRTrajectoryPublisher(Node):
                     self.publish_zero_hand_joint_trajectories()
                     return
 
+                # Never fall back to the headset for arm/base/lift control. A
+                # missing skeleton frame holds the last valid torso transform.
+                if not self.stable_torso_frame_valid or torso_matrix is None:
+                    return
+
                 if (rclpy.ok() and hasattr(self, 'wrist_debug_log_counter')
                         and self.wrist_debug_log_counter
                         % self.wrist_debug_log_every_n == 0):
@@ -1797,9 +2142,7 @@ class VRTrajectoryPublisher(Node):
                         f'[HEAD] ros=[{ros_pos[0]:+.3f}, {ros_pos[1]:+.3f}, {ros_pos[2]:+.3f}]'
                     )
 
-                body_motion_matrix = (
-                    torso_matrix if torso_matrix is not None else head_matrix
-                )
+                body_motion_matrix = torso_matrix
                 body_pos, body_quat = self.matrix_to_pose(body_motion_matrix)
                 body_ros_pos, body_ros_quat = self.vr_to_ros_transform(
                     body_pos, body_quat
