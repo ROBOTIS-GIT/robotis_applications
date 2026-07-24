@@ -40,7 +40,8 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from tf2_ros import Buffer, TransformException, TransformListener
 from vuer import Vuer
 from vuer.schemas import (
-    Body, CoordsMarker, Group, Hands, HemisphereLightStage, ImageBackground, Scene, Sphere
+    Body, CoordsMarker, Group, HUDPlane, Hands, HemisphereLightStage,
+    ImageBackground, MeshBasicMaterial, Scene, Sphere, Text
 )
 
 # Allow nested asyncio execution
@@ -1899,6 +1900,38 @@ class VRTrajectoryPublisher(Node):
             ],
         )
 
+    @staticmethod
+    def _calibration_instruction():
+        """Create a headset-fixed instruction shown only before calibration."""
+        return HUDPlane(
+            MeshBasicMaterial(
+                key='calibration-instruction-transparent-material',
+                color='#000000',
+                transparent=True,
+                opacity=0.0,
+                depthWrite=False,
+            ),
+            Text(
+                'Align the ORANGE wrist spheres with the CYAN wrist spheres,\n'
+                'then ENABLE VR.',
+                key='calibration-instruction-text',
+                color='#ffffff',
+                fontSize=0.055,
+                fontWeight='bold',
+                textAlign='center',
+                anchorX='center',
+                anchorY='middle',
+                maxWidth=1.4,
+                lineHeight=1.25,
+            ),
+            key='calibration-instruction',
+            distanceToCamera=0.8,
+            height=0.28,
+            position=[0.0, 0.0, 0.0],
+            fixed=False,
+            layers=1,
+        )
+
     async def main_hand_tracking(self, session):
         """Run main hand tracking session."""
         try:
@@ -1945,6 +1978,7 @@ class VRTrajectoryPublisher(Node):
             self.get_logger().info(
                 f'Hand tracking enabled{" + VR image" if self.enable_vr_image else ""}'
             )
+            calibration_instruction_visible = False
             while True:
                 guides = []
                 for side in ('left', 'right'):
@@ -1956,6 +1990,13 @@ class VRTrajectoryPublisher(Node):
                         guides.append(self._tracked_wrist_guide(side, tracked_matrix))
                 if guides:
                     session.upsert @ guides
+                if not self.relative_calibrated:
+                    if not calibration_instruction_visible:
+                        session.upsert @ self._calibration_instruction()
+                        calibration_instruction_visible = True
+                elif calibration_instruction_visible:
+                    session.remove @ 'calibration-instruction'
+                    calibration_instruction_visible = False
                 await asyncio.sleep(1/fps)
         except Exception as e:
             self.get_logger().error(f'Error in hand tracking session: {e}')

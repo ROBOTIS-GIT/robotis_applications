@@ -34,7 +34,10 @@ from std_msgs.msg import Bool, Float32
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from tf2_ros import Buffer, TransformException, TransformListener
 from vuer import Vuer
-from vuer.schemas import Body, CoordsMarker, Group, MotionControllers, Scene, Sphere
+from vuer.schemas import (
+    Body, CoordsMarker, Group, HUDPlane, MeshBasicMaterial, MotionControllers,
+    Scene, Sphere, Text
+)
 
 # Allow nested asyncio execution
 nest_asyncio.apply()
@@ -773,6 +776,38 @@ class VRTrajectoryPublisher(Node):
             ],
         )
 
+    @staticmethod
+    def _calibration_instruction():
+        """Create a headset-fixed instruction shown only before calibration."""
+        return HUDPlane(
+            MeshBasicMaterial(
+                key='calibration-instruction-transparent-material',
+                color='#000000',
+                transparent=True,
+                opacity=0.0,
+                depthWrite=False,
+            ),
+            Text(
+                'Align the ORANGE wrist spheres with the CYAN wrist spheres,\n'
+                'then ENABLE VR.',
+                key='calibration-instruction-text',
+                color='#ffffff',
+                fontSize=0.055,
+                fontWeight='bold',
+                textAlign='center',
+                anchorX='center',
+                anchorY='middle',
+                maxWidth=1.4,
+                lineHeight=1.25,
+            ),
+            key='calibration-instruction',
+            distanceToCamera=0.8,
+            height=0.28,
+            position=[0.0, 0.0, 0.0],
+            fixed=False,
+            layers=1,
+        )
+
     def get_lift_z_delta_for_arm_pose(self):
         """Return Z delta applied to arm goals from lift joint motion."""
         if not self.apply_lift_to_arm_z:
@@ -1386,6 +1421,7 @@ class VRTrajectoryPublisher(Node):
                 ],
             )
             self.get_logger().info('Controller and body tracking enabled')
+            calibration_instruction_visible = False
             while True:
                 guides = []
                 for side in ('left', 'right'):
@@ -1401,6 +1437,13 @@ class VRTrajectoryPublisher(Node):
                         )
                 if guides:
                     session.upsert @ guides
+                if not self.relative_calibrated:
+                    if not calibration_instruction_visible:
+                        session.upsert @ self._calibration_instruction()
+                        calibration_instruction_visible = True
+                elif calibration_instruction_visible:
+                    session.remove @ 'calibration-instruction'
+                    calibration_instruction_visible = False
                 await asyncio.sleep(1/fps)
         except Exception as e:
             self.get_logger().error(f'Error in controller/body tracking session: {e}')
