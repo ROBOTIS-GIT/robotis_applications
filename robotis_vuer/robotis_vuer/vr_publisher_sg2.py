@@ -149,12 +149,14 @@ class VRTrajectoryPublisher(Node):
         )
         self.left_gripper_pub = self.create_publisher(
             JointTrajectory,
-            '/leader/joint_trajectory_command_broadcaster_left/joint_trajectory',
+            '/leader/joint_trajectory_command_broadcaster_left/'
+            'raw_joint_trajectory',
             self.vr_stream_qos
         )
         self.right_gripper_pub = self.create_publisher(
             JointTrajectory,
-            '/leader/joint_trajectory_command_broadcaster_right/joint_trajectory',
+            '/leader/joint_trajectory_command_broadcaster_right/'
+            'raw_joint_trajectory',
             self.vr_stream_qos
         )
         self.cmd_vel_pub = self.create_publisher(
