@@ -2,6 +2,11 @@
 Changelog for package robotis_applications
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.0.1 (2026-08-20)
+------------------
+* Routed SG2 gripper commands to the raw joint trajectory topics
+* Contributors: Yeonguk Kim
+
 1.0.0 (2026-06-17)
 ------------------
 * Set rmw_zenoh_cpp as the default RMW in Docker images
