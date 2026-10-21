@@ -35,6 +35,7 @@ setup(
         'console_scripts': [
             'vr_publisher_hx5 = robotis_vuer.vr_publisher_hx5:main',
             'vr_publisher_sg2 = robotis_vuer.vr_publisher_sg2:main',
+            'vr_publisher_f2 = robotis_vuer.vr_publisher_f2:main',
             'vr_publisher_sh5 = robotis_vuer.vr_publisher_sh5:main',
         ],
     },

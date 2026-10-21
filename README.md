@@ -62,6 +62,21 @@ or shortcut:
 vr model:=sg2
 ```
 
+Run F2:
+
+```bash
+ros2 launch robotis_vuer vr.launch.py model:=f2
+```
+
+or shortcut:
+```bash
+vr model:=f2
+```
+
+Use `model:=f2 controller_type:=vr` in the Cyclo Control launch as well.
+See [F2 setup and safety checks](robotis_vuer/README.md#f2-vr-setup)
+before enabling robot motion. F1 VR is not supported.
+
 Run HX5:
 
 ```bash
