@@ -2,6 +2,12 @@
 Changelog for package robotis_vuer
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.1.0 (2026-10-22)
+------------------
+* Added F2 VR publisher with HX2-D1 gripper limits
+* Added F2 model selection and launch dependencies
+* Contributors: Yeonguk Kim
+
 1.0.1 (2026-08-20)
 ------------------
 * Routed SG2 gripper commands to the raw joint trajectory topics
