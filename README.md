@@ -62,6 +62,17 @@ or shortcut:
 vr model:=sg2
 ```
 
+Run F2:
+
+```bash
+ros2 launch robotis_vuer vr.launch.py model:=f2
+```
+
+or shortcut:
+```bash
+vr model:=f2
+```
+
 Run HX5:
 
 ```bash

@@ -2,6 +2,11 @@
 Changelog for package robotis_applications
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.1.0 (2026-10-22)
+------------------
+* Added F2 support for VR teleoperation
+* Contributors: Yeonguk Kim
+
 1.0.1 (2026-08-20)
 ------------------
 * Routed SG2 gripper commands to the raw joint trajectory topics
