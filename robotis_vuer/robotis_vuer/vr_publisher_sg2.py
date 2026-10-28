@@ -54,7 +54,7 @@ VR_HEAD_TO_ROS = np.array([
 
 class VRTrajectoryPublisher(Node):
 
-    def __init__(self):
+    def __init__(self, gripper_max_position=1.3):
         super().__init__('vr_trajectory_publisher')
         self.get_logger().set_level(rclpy.logging.LoggingSeverity.INFO)
         self.declare_parameter('left_wrist_offset_x', 0.0)
@@ -73,8 +73,8 @@ class VRTrajectoryPublisher(Node):
         self.declare_parameter('right_trigger_offset', 0.0)
         self.declare_parameter('left_trigger_scale', 1.0)
         self.declare_parameter('right_trigger_scale', 1.0)
-        self.declare_parameter('left_gripper_max_position', 1.3)
-        self.declare_parameter('right_gripper_max_position', 1.3)
+        self.declare_parameter('left_gripper_max_position', gripper_max_position)
+        self.declare_parameter('right_gripper_max_position', gripper_max_position)
         self.declare_parameter('goal_pose_position_scale', 1.1)
         self.declare_parameter('stream_fps', 30)
         self.declare_parameter('pose_publish_hz', 30.0)
