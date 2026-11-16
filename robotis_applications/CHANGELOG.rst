@@ -2,6 +2,11 @@
 Changelog for package robotis_applications
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.1.1 (2026-11-16)
+------------------
+* Renamed F2 VR teleoperation to W2
+* Contributors: Yeonguk Kim
+
 1.1.0 (2026-10-22)
 ------------------
 * Added F2 support for VR teleoperation
