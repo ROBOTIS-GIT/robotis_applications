@@ -12,7 +12,7 @@ author_emails = ', '.join(email for _, email in authors_info)
 
 setup(
     name=package_name,
-    version='1.1.0',
+    version='1.1.1',
     packages=find_packages(exclude=['test']),
     data_files=[
         ('share/ament_index/resource_index/packages',
@@ -35,7 +35,7 @@ setup(
         'console_scripts': [
             'vr_publisher_hx5 = robotis_vuer.vr_publisher_hx5:main',
             'vr_publisher_sg2 = robotis_vuer.vr_publisher_sg2:main',
-            'vr_publisher_f2 = robotis_vuer.vr_publisher_f2:main',
+            'vr_publisher_w2 = robotis_vuer.vr_publisher_w2:main',
             'vr_publisher_sh5 = robotis_vuer.vr_publisher_sh5:main',
         ],
     },
