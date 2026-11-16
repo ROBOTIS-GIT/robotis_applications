@@ -20,8 +20,8 @@ import rclpy
 from robotis_vuer.vr_publisher_sg2 import VRTrajectoryPublisher
 
 
-class F2VRTrajectoryPublisher(VRTrajectoryPublisher):
-    """Use SG2 VR controls with the F2 HX2-D1 gripper range."""
+class W2VRTrajectoryPublisher(VRTrajectoryPublisher):
+    """Use SG2 VR controls with the W2 HX2-D1 gripper range."""
 
     def __init__(self):
         super().__init__(gripper_max_position=1.1)
@@ -29,7 +29,7 @@ class F2VRTrajectoryPublisher(VRTrajectoryPublisher):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = F2VRTrajectoryPublisher()
+    node = W2VRTrajectoryPublisher()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
