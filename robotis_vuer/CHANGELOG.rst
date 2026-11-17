@@ -2,6 +2,12 @@
 Changelog for package robotis_vuer
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.1.1 (2026-11-16)
+------------------
+* Renamed the F2 VR publisher and launch model selection to W2
+* Kept existing command topics and gripper limits unchanged
+* Contributors: Yeonguk Kim
+
 1.1.0 (2026-10-22)
 ------------------
 * Added F2 VR publisher with HX2-D1 gripper limits
